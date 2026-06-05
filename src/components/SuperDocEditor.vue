@@ -1,0 +1,589 @@
+<template>
+  <div class="superdoc-editor">
+    <input
+      v-if="showOpenDocx && !hideToolbar"
+      ref="docxFileInputRef"
+      type="file"
+      class="hidden"
+      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      test-id="document-open-docx-input"
+      @change="onDocxFileInputChange"
+    />
+    <div v-if="!hideToolbar" id="toolbar" ref="toolbarRef" />
+    <div
+      v-if="!hideToolbar && headerFooterBannerText"
+      class="sd-hf-context-banner"
+      role="status"
+      test-id="document-header-footer-context-banner"
+    >
+      {{ headerFooterBannerText }}
+    </div>
+    <div id="editor" ref="editorRef" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { BlankDOCX, SuperDoc } from 'superdoc'
+import 'superdoc/style.css'
+import '@/assets/superdoc-document-fonts.css'
+import { attachAutoParagraphDirection, wireAutoParagraphDirection } from '@/utils/autoParagraphDirection'
+import { SUPERDOC_FONT_CONFIGS } from '@/utils/superdoc-fonts'
+import { DOCX_MIME, type SuperDocDocumentSource, type SuperDocLabels, type SuperDocUser } from '@/types/messages'
+
+const OPEN_DOCX_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V304H272c-8.8 0-16 7.2-16 16v32c0 8.8 7.2 16 16 16H384v80c0 8.8-7.2 16-16 16H64zM384 263.4L280.4 159.8c-4.2-4.2-10.3-6.6-16.4-6.6H256V64c0-8.8 7.2-16 16-16h32V160c0 17.7 14.3 32 32 32h112V263.4zM155.7 250.2L132.4 350.3c-1.7 7.3-8.2 12.4-15.7 12.4s-14-5.1-15.7-12.4L78.3 250.2c-2.4-10.2 3.8-20.5 14-22.9s20.5 3.8 22.9 14l4.8 20.2 4.8-20.2c2.4-10.2 12.7-16.4 22.9-14s16.4 12.7 14 22.9zm112 0l-23.3 100.1c-1.7 7.3-8.2 12.4-15.7 12.4s-14-5.1-15.7-12.4L190.3 250.2c-2.4-10.2 3.8-20.5 14-22.9s20.5 3.8 22.9 14l4.8 20.2 4.8-20.2c2.4-10.2 12.7-16.4 22.9-14s16.4 12.7 14 22.9z"/></svg>'
+
+const DIFFERENT_FIRST_PAGE_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V304H272c-8.8 0-16 7.2-16 16v32c0 8.8 7.2 16 16 16H384V128H320c-17.7 0-32-14.3-32-32V0H64zm224 48v32H64V112h224zM96 160h32v32H96v-32zm48 0h96v32H144v-32zM96 224h192v32H96V224zm0 64h192v32H96V288zm0 64h128v32H96V352z"/></svg>'
+
+const PAGE_BREAK_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V304H272c-8.8 0-16 7.2-16 16v32c0 8.8 7.2 16 16 16H384v80c0 8.8-7.2 16-16 16H64zM384 263.4L280.4 159.8c-4.2-4.2-10.3-6.6-16.4-6.6H256V64c0-8.8 7.2-16 16-16h32V160c0 17.7 14.3 32 32 32h112V263.4z"/><path fill="none" stroke="currentColor" stroke-width="32" stroke-dasharray="40 24" d="M48 256h288"/></svg>'
+
+const props = withDefaults(
+  defineProps<{
+    document?: SuperDocDocumentSource
+    user?: SuperDocUser
+    documentMode?: string
+    role?: string
+    hideToolbar?: boolean
+    showOpenDocx?: boolean
+    showDifferentFirstPage?: boolean
+    showPageBreak?: boolean
+    labels: SuperDocLabels
+  }>(),
+  {
+    document: null,
+    user: undefined,
+    documentMode: 'editing',
+    role: 'editor',
+    hideToolbar: false,
+    showOpenDocx: false,
+    showDifferentFirstPage: true,
+    showPageBreak: true,
+  },
+)
+
+const emit = defineEmits<{
+  ready: []
+  update: []
+  docxSelected: [file: File]
+}>()
+
+const toolbarRef = ref<HTMLElement | null>(null)
+const editorRef = ref<HTMLElement | null>(null)
+const docxFileInputRef = ref<HTMLInputElement | null>(null)
+const differentFirstPageEnabled = ref(false)
+const hfSurface = ref('body')
+const hfVariant = ref<string | null>(null)
+const isReady = ref(false)
+
+let superdoc: any = null
+let disconnectAutoDirection: (() => void) | null = null
+
+const headerFooterBannerText = computed(() => {
+  if (!props.showDifferentFirstPage || !differentFirstPageEnabled.value) return ''
+
+  if (hfSurface.value === 'header' && hfVariant.value === 'first') {
+    return props.labels.editingFirstPageHeader
+  }
+  if (hfSurface.value === 'footer' && hfVariant.value === 'first') {
+    return props.labels.editingFirstPageFooter
+  }
+  if (hfSurface.value === 'header') {
+    return props.labels.editingOtherPagesHeader
+  }
+  if (hfSurface.value === 'footer') {
+    return props.labels.editingOtherPagesFooter
+  }
+  return props.labels.differentFirstPageActive
+})
+
+function isDocxSource(documentSource?: SuperDocDocumentSource) {
+  if (!documentSource) return false
+
+  if (documentSource instanceof File) {
+    return documentSource.type === DOCX_MIME || documentSource.name.toLowerCase().endsWith('.docx')
+  }
+
+  if (documentSource instanceof Blob) {
+    return !documentSource.type || documentSource.type === DOCX_MIME
+  }
+
+  if (typeof documentSource === 'string') {
+    if (documentSource.startsWith('data:application/vnd.openxmlformats-officedocument')) return true
+    if (/\.docx(?:$|[?#])/i.test(documentSource)) return true
+    return false
+  }
+
+  return false
+}
+
+function resolveDocument(documentSource?: SuperDocDocumentSource) {
+  return isDocxSource(documentSource) ? documentSource : BlankDOCX
+}
+
+function onDocxFileInputChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) {
+    emit('docxSelected', file)
+  }
+  input.value = ''
+}
+
+function canMutateDocument() {
+  return props.documentMode === 'editing' && props.role !== 'viewer'
+}
+
+function getActiveEditor() {
+  return superdoc?.activeEditor ?? null
+}
+
+function getFirstSection(editor: any) {
+  const list = editor.doc.sections.list()
+  return list.items?.[0] ?? null
+}
+
+function syncHeaderFooterContext() {
+  const editor = getActiveEditor()
+  if (!editor?.doc) {
+    differentFirstPageEnabled.value = false
+    return
+  }
+
+  const section = getFirstSection(editor)
+  differentFirstPageEnabled.value = Boolean(section?.titlePage)
+}
+
+function handleEditorUpdate(params: any) {
+  if (params?.surface) {
+    hfSurface.value = params.surface
+    if (params.surface === 'body') {
+      hfVariant.value = null
+    } else if (params.sectionType !== undefined) {
+      hfVariant.value = params.sectionType
+    }
+    if (params.surface === 'header' || params.surface === 'footer') {
+      const hfEditor = params.sourceEditor ?? params.editor
+      if (hfEditor) attachAutoParagraphDirection(hfEditor, { bootstrap: true })
+    }
+  }
+
+  syncHeaderFooterContext()
+  syncDifferentFirstPageToolbar()
+  syncPageBreakToolbar()
+  emit('update')
+}
+
+function syncDifferentFirstPageToolbar() {
+  const item = superdoc?.toolbar?.getToolbarItemByName?.('differentFirstPage')
+  if (!item) return
+
+  const editor = getActiveEditor()
+  if (!editor?.doc) {
+    item.active.value = false
+    item.setDisabled(!canMutateDocument())
+    return
+  }
+
+  const section = getFirstSection(editor)
+  item.active.value = Boolean(section?.titlePage)
+  item.setDisabled(!canMutateDocument())
+}
+
+function syncPageBreakToolbar() {
+  const item = superdoc?.toolbar?.getToolbarItemByName?.('pageBreak')
+  if (!item) return
+
+  const editor = getActiveEditor()
+  item.setDisabled(!canMutateDocument() || !editor?.commands?.insertPageBreak)
+}
+
+function isAtDocumentContentStart(editor: any) {
+  const { $from } = editor.state.selection
+  if ($from.index(0) !== 0) return false
+
+  const blockStart = $from.start(1)
+  const cursorPos = $from.pos
+  const textBefore = editor.state.doc.textBetween(blockStart, cursorPos, '', '\ufffc')
+  if (textBefore.replace(/\u200b/g, '').length > 0) return false
+
+  let hasBreakBefore = false
+  editor.state.doc.nodesBetween(blockStart, cursorPos, (node: any) => {
+    if (node.type.name === 'hardBreak' || node.type.name === 'lineBreak') {
+      hasBreakBefore = true
+      return false
+    }
+    return undefined
+  })
+  return !hasBreakBefore
+}
+
+function safeEditorCommand(fn: () => unknown) {
+  try {
+    return fn() === true
+  } catch {
+    return false
+  }
+}
+
+function splitAfterPageBreakLikeEnter(editor: any) {
+  const attempts = [
+    () => editor.commands?.splitRunToParagraph?.(),
+    () => editor.commands?.createParagraphNear?.(),
+    () => editor.commands?.liftEmptyBlock?.(),
+    () => editor.commands?.splitBlock?.(),
+  ]
+  for (const attempt of attempts) {
+    if (safeEditorCommand(attempt)) return true
+  }
+  return false
+}
+
+function focusEditor(editor: any) {
+  editor.view?.focus?.()
+  editor.presentationEditor?.focus?.()
+}
+
+function insertLeadingPageBreak(editor: any) {
+  const ZWSP = '\u200b'
+
+  const inserted = editor.chain
+    ? safeEditorCommand(() => editor.chain().insertContent(ZWSP).insertPageBreak().run())
+    : safeEditorCommand(() => editor.commands.insertContent?.(ZWSP)) &&
+      safeEditorCommand(() => editor.commands.insertPageBreak())
+
+  if (!inserted) return false
+
+  safeEditorCommand(() => splitAfterPageBreakLikeEnter(editor))
+  focusEditor(editor)
+  return true
+}
+
+function insertPageBreak() {
+  if (!canMutateDocument()) return
+
+  const editor = getActiveEditor()
+  if (!editor?.commands?.insertPageBreak) return
+
+  const atDocumentStart = isAtDocumentContentStart(editor)
+  const inserted = atDocumentStart ? insertLeadingPageBreak(editor) : editor.commands.insertPageBreak()
+  if (!inserted) return
+
+  emit('update')
+}
+
+function ensureFirstPageHeaderFooterParts(editor: any, sectionAddress: unknown) {
+  for (const headerFooterKind of ['header', 'footer']) {
+    const slot = {
+      kind: 'headerFooterSlot',
+      section: sectionAddress,
+      headerFooterKind,
+      variant: 'first',
+    }
+    const existing = editor.doc.headerFooters.resolve({ target: slot })
+    if (existing.status !== 'none') continue
+
+    const created = editor.doc.headerFooters.parts.create({
+      kind: headerFooterKind,
+    })
+    if (!created?.success) continue
+
+    editor.doc.headerFooters.refs.set({
+      target: slot,
+      refId: created.refId,
+    })
+  }
+}
+
+function toggleDifferentFirstPage() {
+  if (!canMutateDocument()) return
+
+  const editor = getActiveEditor()
+  if (!editor?.doc) return
+
+  const section = getFirstSection(editor)
+  if (!section?.address) return
+
+  const enabling = !section.titlePage
+  const result = editor.doc.sections.setTitlePage({
+    target: section.address,
+    enabled: enabling,
+  })
+  if (!result?.success) return
+
+  if (enabling) {
+    ensureFirstPageHeaderFooterParts(editor, section.address)
+  }
+
+  syncHeaderFooterContext()
+  syncDifferentFirstPageToolbar()
+  superdoc?.toolbar?.updateToolbarState?.()
+  emit('update')
+}
+
+function buildToolbarConfig() {
+  const config: {
+    hideButtons: boolean
+    responsiveToContainer: boolean
+    excludeItems: string[]
+    fonts: typeof SUPERDOC_FONT_CONFIGS
+    customButtons?: Record<string, unknown>[]
+  } = {
+    hideButtons: false,
+    responsiveToContainer: true,
+    excludeItems: ['documentMode', 'comments'],
+    fonts: SUPERDOC_FONT_CONFIGS,
+  }
+
+  if (props.hideToolbar) {
+    return config
+  }
+
+  const customButtons: Record<string, unknown>[] = []
+
+  if (props.showOpenDocx) {
+    customButtons.push({
+      type: 'button',
+      name: 'openDocx',
+      group: 'left',
+      icon: OPEN_DOCX_ICON,
+      tooltip: props.labels.openDocxFile,
+      allowWithoutEditor: true,
+      restoreEditorFocus: false,
+      command: () => docxFileInputRef.value?.click(),
+      attributes: {
+        ariaLabel: props.labels.openDocxFile,
+        'test-id': 'document-open-docx-button',
+      },
+    })
+  }
+
+  if (props.showDifferentFirstPage) {
+    customButtons.push({
+      type: 'button',
+      name: 'differentFirstPage',
+      group: 'left',
+      icon: DIFFERENT_FIRST_PAGE_ICON,
+      tooltip: props.labels.differentFirstPage,
+      allowWithoutEditor: false,
+      restoreEditorFocus: false,
+      active: false,
+      command: () => toggleDifferentFirstPage(),
+      attributes: {
+        ariaLabel: props.labels.differentFirstPage,
+        'test-id': 'document-different-first-page-button',
+      },
+    })
+  }
+
+  if (props.showPageBreak) {
+    customButtons.push({
+      type: 'button',
+      name: 'pageBreak',
+      group: 'left',
+      icon: PAGE_BREAK_ICON,
+      tooltip: props.labels.pageBreak,
+      allowWithoutEditor: false,
+      restoreEditorFocus: true,
+      command: () => insertPageBreak(),
+      attributes: {
+        ariaLabel: props.labels.pageBreak,
+        'test-id': 'document-page-break-button',
+      },
+    })
+  }
+
+  if (customButtons.length > 0) {
+    config.customButtons = customButtons
+  }
+
+  return config
+}
+
+async function exportDocx(fileName = 'document.docx') {
+  if (!superdoc) throw new Error('SuperDoc not initialized')
+  const blobs = await superdoc.exportEditorsToDOCX({ commentsType: 'clean' })
+  const blob = Array.isArray(blobs) ? blobs[0] : blobs
+  if (!blob) throw new Error('SuperDoc export produced no document')
+  const safeName = fileName.toLowerCase().endsWith('.docx') ? fileName : `${fileName}.docx`
+  return new File([blob], safeName, { type: DOCX_MIME })
+}
+
+function isEmpty() {
+  if (!superdoc) return true
+  const html = superdoc.getHTML?.() ?? []
+  const text = (Array.isArray(html) ? html.join('') : String(html))
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\u200b/g, '')
+    .trim()
+  return text.length === 0
+}
+
+defineExpose({ exportDocx, isEmpty, isReady })
+
+onMounted(() => {
+  superdoc = new SuperDoc({
+    selector: '#editor',
+    ...(props.hideToolbar ? {} : { toolbar: '#toolbar' }),
+    document: resolveDocument(props.document) as any,
+    documentMode: props.documentMode as any,
+    role: props.role as any,
+    contained: true,
+    user: props.user,
+    modules: {
+      toolbar: buildToolbarConfig() as any,
+      comments: false,
+    },
+    onReady: () => {
+      syncHeaderFooterContext()
+      syncDifferentFirstPageToolbar()
+      syncPageBreakToolbar()
+      superdoc?.toolbar?.updateToolbarState?.()
+      isReady.value = true
+      emit('ready')
+    },
+    onEditorCreate: () => {
+      syncHeaderFooterContext()
+      syncDifferentFirstPageToolbar()
+      syncPageBreakToolbar()
+      superdoc?.toolbar?.updateToolbarState?.()
+    },
+    onEditorUpdate: handleEditorUpdate,
+  })
+  disconnectAutoDirection = wireAutoParagraphDirection(superdoc)
+})
+
+onUnmounted(() => {
+  disconnectAutoDirection?.()
+  disconnectAutoDirection = null
+  superdoc?.destroy()
+  superdoc = null
+})
+</script>
+
+<style scoped>
+.hidden {
+  display: none;
+}
+
+.superdoc-editor {
+  --bg: #ffffff;
+  --border: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  margin-top:40px
+}
+
+#toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-shrink: 0;
+  width: 100%;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow: visible;
+}
+
+#toolbar :deep(.superdoc-toolbar) {
+  background: var(--bg);
+  width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  row-gap: 4px;
+  column-gap: 4px;
+}
+
+#toolbar :deep(.button-group),
+#toolbar :deep(.superdoc-toolbar-group-side) {
+  flex-wrap: wrap;
+}
+
+.sd-hf-context-banner {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #334155;
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--border);
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  margin-inline: auto;
+  align-self: center;
+}
+
+#editor :deep(.superdoc__document) {
+  display: flex;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#editor :deep(.superdoc__sub-document) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+#editor :deep(.super-editor-container) {
+  width: auto;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+#editor :deep(.super-editor),
+#editor :deep(.presentation-editor) {
+  width: auto !important;
+  max-width: 100%;
+  min-height: 0;
+  margin-inline: auto;
+}
+
+#editor :deep(.presentation-editor__viewport) {
+  min-height: 0;
+}
+
+#editor :deep(.presentation-editor__viewport),
+#editor :deep(.presentation-editor__pages),
+#editor :deep(.superdoc-layout) {
+  margin-inline: auto;
+}
+
+#editor :deep(.superdoc-layout) {
+  width: fit-content;
+  max-width: 100%;
+  unicode-bidi: plaintext;
+}
+
+#editor :deep([dir='rtl']),
+#editor :deep(.sd-header-footer[dir='rtl']),
+#editor :deep(.sd-header-footer [dir='rtl']) {
+  direction: rtl;
+  unicode-bidi: plaintext;
+}
+
+#editor :deep([dir='ltr']) {
+  direction: ltr;
+}
+</style>

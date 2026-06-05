@@ -1,0 +1,36 @@
+{
+  "name": "superdoc-editor",
+  "version": "0.1.0",
+  "description": "Standalone SuperDoc editor app for iframe embedding.",
+  "private": false,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "keywords": [
+    "superdoc",
+    "docx",
+    "editor",
+    "iframe",
+    "vue",
+    "vite"
+  ],
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3013",
+    "build": "run-p type-check build-only",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build --force",
+    "preview": "vite preview --host 0.0.0.0 --port 4013"
+  },
+  "dependencies": {
+    "superdoc": "^1.38.0",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.4",
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vue/tsconfig": "^0.5.1",
+    "npm-run-all2": "^6.1.2",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "vue-tsc": "^2.2.8"
+  }
+}
