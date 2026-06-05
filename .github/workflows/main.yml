@@ -28,7 +28,7 @@ jobs:
     - name: Build react app
       run: |
         npm install
-        CI=false VITE_ALLOWED_PARENT_ORIGINS=https://4es-dev.smartclick.solutions,http://localhost:3003,https://4es.smartclick.solutions,https://app.4eshub.com npm run build
+        CI=false VITE_ALLOWED_PARENT_ORIGINS=https://dev-4es.smartclick.solutions,http://localhost:3003,https://4es.smartclick.solutions,https://app.4eshub.com npm run build
     - name: Push to s3
       env:
         S3_BUCKET: ${{ secrets.S3_BUCKET }}
