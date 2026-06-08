@@ -2,6 +2,8 @@ import { SuperDoc } from 'superdoc'
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const READY_TIMEOUT_MS = 120_000
+const HIDDEN_DOC_WIDTH = '1024px'
+const HIDDEN_DOC_HEIGHT = '768px'
 
 export interface SuperDocDiffUser {
     name: string
@@ -76,10 +78,11 @@ function openHiddenDocx(docxSource: DocxSource, user: SuperDocDiffUser): Promise
         position: 'fixed',
         left: '-9999px',
         top: '0',
-        width: '1px',
-        height: '1px',
+        width: HIDDEN_DOC_WIDTH,
+        height: HIDDEN_DOC_HEIGHT,
         overflow: 'hidden',
         pointerEvents: 'none',
+        opacity: '0',
     })
     globalThis.document.body.appendChild(container)
 
