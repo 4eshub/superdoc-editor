@@ -30,6 +30,7 @@ export type SuperDocInitPayload = {
   showOpenDocx: boolean
   showDifferentFirstPage: boolean
   showPageBreak: boolean
+  trackChangesVisible?: boolean
   locale?: string
   labels?: Partial<SuperDocLabels>
 }
@@ -57,6 +58,16 @@ export type ParentToIframeMessage =
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
       type: 'isEmpty'
       requestId: string
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'runDiff'
+      requestId: string
+      payload: {
+        original: SuperDocDocumentSource
+        revised: SuperDocDocumentSource
+        user: SuperDocUser
+      }
     }
 
 export type IframeToParentMessage =
@@ -87,6 +98,12 @@ export type IframeToParentMessage =
       type: 'isEmptyResult'
       requestId: string
       payload: { isEmpty: boolean }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'runDiffResult'
+      requestId: string
+      payload: { blob: Blob; hasChanges: boolean; changedComponents: string[] }
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE

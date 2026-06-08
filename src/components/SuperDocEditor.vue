@@ -23,7 +23,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { BlankDOCX, SuperDoc } from 'superdoc'
 import 'superdoc/style.css'
 import '@/assets/superdoc-document-fonts.css'
@@ -50,6 +50,7 @@ const props = withDefaults(
     showOpenDocx?: boolean
     showDifferentFirstPage?: boolean
     showPageBreak?: boolean
+    trackChangesVisible?: boolean
     labels: SuperDocLabels
   }>(),
   {
@@ -61,6 +62,7 @@ const props = withDefaults(
     showOpenDocx: false,
     showDifferentFirstPage: true,
     showPageBreak: true,
+    trackChangesVisible: false,
   },
 )
 
@@ -80,6 +82,160 @@ const isReady = ref(false)
 
 let superdoc: any = null
 let disconnectAutoDirection: (() => void) | null = null
+let marginControlsGroup: HTMLElement | null = null
+
+const PX_PER_INCH = 96
+const DEFAULT_MARGIN_INCHES = 1
+
+const marginControlRefs: Record<string, { slider: HTMLInputElement | null; value: HTMLElement | null }> = {
+  left: { slider: null, value: null },
+  right: { slider: null, value: null },
+}
+
+function parseMarginInches(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string') return null
+
+  const match = value.trim().match(/^([\d.]+)\s*(in|px)?$/i)
+  if (!match) return null
+
+  const amount = Number.parseFloat(match[1])
+  if (!Number.isFinite(amount)) return null
+
+  const unit = (match[2] || 'in').toLowerCase()
+  return unit === 'px' ? amount / PX_PER_INCH : amount
+}
+
+function normalizePageMargins(pageMargins: Record<string, unknown> = {}) {
+  const normalized: Record<string, number> = {}
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    const parsed = parseMarginInches(pageMargins[side])
+    if (parsed != null) normalized[side] = parsed
+  }
+  return normalized
+}
+
+function inchesToPx(inches: number) {
+  return Math.round(inches * PX_PER_INCH)
+}
+
+function pxToInches(px: number) {
+  return px / PX_PER_INCH
+}
+
+function getCurrentPageMargins() {
+  const pageMargins = getActiveEditor()?.getPageStyles?.()?.pageMargins ?? {}
+  return {
+    top: pageMargins.top ?? DEFAULT_MARGIN_INCHES,
+    right: pageMargins.right ?? DEFAULT_MARGIN_INCHES,
+    bottom: pageMargins.bottom ?? DEFAULT_MARGIN_INCHES,
+    left: pageMargins.left ?? DEFAULT_MARGIN_INCHES,
+  }
+}
+
+function getPageStyles() {
+  return getActiveEditor()?.getPageStyles?.() ?? {}
+}
+
+function syncMarginControls() {
+  const margins = getCurrentPageMargins()
+  for (const side of ['left', 'right'] as const) {
+    const refs = marginControlRefs[side]
+    if (!refs.slider || !refs.value) continue
+    const px = inchesToPx(margins[side])
+    refs.slider.value = String(px)
+    refs.value.textContent = `${px}px`
+  }
+}
+
+function updatePageStyle({ pageMargins }: { pageMargins?: Record<string, unknown> } = {}) {
+  const editor = getActiveEditor()
+  if (!editor?.updatePageStyle) return false
+
+  const current = getCurrentPageMargins()
+  const next = pageMargins ? { ...current, ...normalizePageMargins(pageMargins) } : current
+
+  editor.updatePageStyle({ pageMargins: next })
+  syncMarginControls()
+  emit('update')
+  return true
+}
+
+function setPageMargin(side: string, inches: number) {
+  return updatePageStyle({ pageMargins: { [side]: inches } })
+}
+
+function makeMarginControl(
+  side: string,
+  label: string,
+  initialPx: number,
+  onInput: (inches: number) => void,
+) {
+  const wrap = document.createElement('span')
+  wrap.className = 'doc-margin-ctrl'
+
+  const lbl = document.createElement('span')
+  lbl.className = 'doc-margin-label'
+  lbl.textContent = label
+
+  const slider = document.createElement('input')
+  slider.type = 'range'
+  slider.min = '10'
+  slider.max = '192'
+  slider.value = String(initialPx)
+  slider.className = 'doc-margin-slider'
+  slider.title = side === 'left' ? 'Left page margin' : 'Right page margin'
+  slider.setAttribute('test-id', `document-margin-${side}`)
+
+  const val = document.createElement('span')
+  val.className = 'doc-margin-val'
+  val.textContent = `${initialPx}px`
+
+  slider.addEventListener('input', () => {
+    const px = Number(slider.value)
+    onInput(pxToInches(px))
+    val.textContent = `${px}px`
+  })
+
+  wrap.appendChild(lbl)
+  wrap.appendChild(slider)
+  wrap.appendChild(val)
+
+  return { wrap, slider, val }
+}
+
+function injectMarginControls() {
+  if (props.hideToolbar || !toolbarRef.value || marginControlsGroup) return
+
+  const toolbarEl = toolbarRef.value.querySelector('.superdoc-toolbar')
+  if (!toolbarEl) return
+
+  const margins = getCurrentPageMargins()
+  const group = document.createElement('span')
+  group.className = 'button-group doc-margin-group'
+
+  const leftCtrl = makeMarginControl('left', 'L', inchesToPx(margins.left), (inches) =>
+    setPageMargin('left', inches),
+  )
+  const rightCtrl = makeMarginControl('right', 'R', inchesToPx(margins.right), (inches) =>
+    setPageMargin('right', inches),
+  )
+
+  marginControlRefs.left = { slider: leftCtrl.slider, value: leftCtrl.val }
+  marginControlRefs.right = { slider: rightCtrl.slider, value: rightCtrl.val }
+
+  group.appendChild(leftCtrl.wrap)
+  group.appendChild(rightCtrl.wrap)
+  toolbarEl.appendChild(group)
+  marginControlsGroup = group
+}
+
+function removeMarginControls() {
+  marginControlsGroup?.remove()
+  marginControlsGroup = null
+  marginControlRefs.left = { slider: null, value: null }
+  marginControlRefs.right = { slider: null, value: null }
+}
 
 const headerFooterBannerText = computed(() => {
   if (!props.showDifferentFirstPage || !differentFirstPageEnabled.value) return ''
@@ -422,7 +578,7 @@ function isEmpty() {
   return text.length === 0
 }
 
-defineExpose({ exportDocx, isEmpty, isReady })
+defineExpose({ exportDocx, isEmpty, isReady, getPageStyles, updatePageStyle, setPageMargin })
 
 onMounted(() => {
   superdoc = new SuperDoc({
@@ -432,16 +588,22 @@ onMounted(() => {
     documentMode: props.documentMode as any,
     role: props.role as any,
     contained: true,
+    rulers: !props.hideToolbar,
     user: props.user,
     modules: {
       toolbar: buildToolbarConfig() as any,
       comments: false,
+      ...(props.trackChangesVisible ? { trackChanges: { visible: true } } : {}),
     },
     onReady: () => {
       syncHeaderFooterContext()
       syncDifferentFirstPageToolbar()
       syncPageBreakToolbar()
       superdoc?.toolbar?.updateToolbarState?.()
+      nextTick(() => {
+        injectMarginControls()
+        syncMarginControls()
+      })
       isReady.value = true
       emit('ready')
     },
@@ -450,6 +612,10 @@ onMounted(() => {
       syncDifferentFirstPageToolbar()
       syncPageBreakToolbar()
       superdoc?.toolbar?.updateToolbarState?.()
+      nextTick(() => {
+        injectMarginControls()
+        syncMarginControls()
+      })
     },
     onEditorUpdate: handleEditorUpdate,
   })
@@ -459,6 +625,7 @@ onMounted(() => {
 onUnmounted(() => {
   disconnectAutoDirection?.()
   disconnectAutoDirection = null
+  removeMarginControls()
   superdoc?.destroy()
   superdoc = null
 })
@@ -504,6 +671,43 @@ onUnmounted(() => {
 #toolbar :deep(.button-group),
 #toolbar :deep(.superdoc-toolbar-group-side) {
   flex-wrap: wrap;
+}
+
+#toolbar :deep(.doc-margin-group) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  border-left: 1px solid var(--border);
+}
+
+#toolbar :deep(.doc-margin-ctrl) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#toolbar :deep(.doc-margin-label) {
+  font-size: 10px;
+  color: #6b7280;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+}
+
+#toolbar :deep(.doc-margin-slider) {
+  width: 72px;
+  accent-color: #000;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+#toolbar :deep(.doc-margin-val) {
+  font-size: 10px;
+  font-weight: 600;
+  color: #111827;
+  min-width: 30px;
+  white-space: nowrap;
 }
 
 .sd-hf-context-banner {
