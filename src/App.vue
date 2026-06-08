@@ -117,11 +117,24 @@ async function handleRequest(message: ParentToIframeMessage) {
     if (message.type === 'runDiff') {
       const { original, revised, user } = message.payload
       if (!original || !revised) throw new Error('runDiff: original and revised documents are required')
+      console.info('[superdoc-editor] runDiff message received', {
+        requestId: message.requestId,
+        origin: parentOrigin.value,
+        originalType: original instanceof Blob ? 'Blob' : typeof original,
+        revisedType: revised instanceof Blob ? 'Blob' : typeof revised,
+      })
+      console.info('[superdoc-editor] runDiff build started', { requestId: message.requestId })
       const result = await buildRedlinedDocx(
         original,
         revised,
         user as { name: string; email: string },
       )
+      console.info('[superdoc-editor] runDiff build completed', {
+        requestId: message.requestId,
+        hasChanges: result.summary.hasChanges,
+        changedComponents: result.summary.changedComponents,
+        blobSize: result.blob.size,
+      })
       postToParent({
         type: 'runDiffResult',
         requestId: message.requestId,
@@ -154,6 +167,12 @@ async function handleRequest(message: ParentToIframeMessage) {
       })
     }
   } catch (error) {
+    if (message.type === 'runDiff') {
+      console.error('[superdoc-editor] runDiff failed', {
+        requestId: message.requestId,
+        error,
+      })
+    }
     postError(message.requestId, error)
   }
 }
