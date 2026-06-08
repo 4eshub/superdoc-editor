@@ -12,6 +12,7 @@
       :show-open-docx="config.showOpenDocx"
       :show-different-first-page="config.showDifferentFirstPage"
       :show-page-break="config.showPageBreak"
+      :track-changes-visible="config.trackChangesVisible ?? false"
       :labels="labels"
       @ready="postToParent({ type: 'ready' })"
       @update="postToParent({ type: 'update' })"
@@ -25,6 +26,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import SuperDocEditor from '@/components/SuperDocEditor.vue'
 import { resolveLabels } from '@/utils/labels'
+import { buildRedlinedDocx } from '@/utils/superdoc-diff'
 import {
   SUPERDOC_IFRAME_MESSAGE_NAMESPACE,
   isSuperDocIframeMessage,
@@ -109,6 +111,26 @@ async function handleRequest(message: ParentToIframeMessage) {
         document: message.payload.document,
       }
       editorKey.value += 1
+      return
+    }
+
+    if (message.type === 'runDiff') {
+      const { original, revised, user } = message.payload
+      if (!original || !revised) throw new Error('runDiff: original and revised documents are required')
+      const result = await buildRedlinedDocx(
+        original,
+        revised,
+        user as { name: string; email: string },
+      )
+      postToParent({
+        type: 'runDiffResult',
+        requestId: message.requestId,
+        payload: {
+          blob: result.blob,
+          hasChanges: result.summary.hasChanges,
+          changedComponents: result.summary.changedComponents,
+        },
+      })
       return
     }
 
