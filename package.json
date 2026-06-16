@@ -1,9 +1,17 @@
 {
   "name": "superdoc-editor",
   "version": "0.1.0",
-  "description": "Standalone SuperDoc editor app for iframe embedding.",
+  "description": "Open-source embeddable SuperDoc editor for iframe integrations.",
   "private": false,
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/afawaz-4es/superdoc-preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/afawaz-4es/superdoc-preview/issues"
+  },
+  "homepage": "https://github.com/afawaz-4es/superdoc-preview#readme",
   "type": "module",
   "keywords": [
     "superdoc",
