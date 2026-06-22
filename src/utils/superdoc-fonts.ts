@@ -40,18 +40,6 @@ export const SUPERDOC_FONT_DEFINITIONS: SuperdocFontDefinition[] = [
     stack: "Poppins, Cairo, 'Noto Sans Arabic', Arial, sans-serif",
   },
   {
-    label: 'Proxima Nova',
-    stack: "'Proxima Nova', Montserrat, 'Noto Sans Arabic', Cairo, Arial, sans-serif",
-  },
-  {
-    label: 'Avenir',
-    stack: "Avenir, 'Avenir Next', Montserrat, 'Noto Sans Arabic', Cairo, Arial, sans-serif",
-  },
-  {
-    label: 'Gotham',
-    stack: "Gotham, Montserrat, 'Noto Sans Arabic', Cairo, Arial, sans-serif",
-  },
-  {
     label: 'Times New Roman',
     stack: "'Times New Roman', Times, 'Noto Naskh Arabic', Amiri, Georgia, serif",
   },
@@ -61,11 +49,11 @@ export const SUPERDOC_FONT_DEFINITIONS: SuperdocFontDefinition[] = [
   },
   {
     label: 'Bodoni',
-    stack: "Bodoni, 'Bodoni 72', Didot, Amiri, 'Noto Naskh Arabic', Georgia, serif",
+    stack: "Bodoni, 'Bodoni Moda', 'Bodoni 72', Didot, Amiri, 'Noto Naskh Arabic', serif",
   },
   {
     label: 'Didot',
-    stack: "Didot, 'Bodoni 72', Georgia, Amiri, 'Noto Naskh Arabic', serif",
+    stack: "Didot, 'Playfair Display', Amiri, 'Noto Naskh Arabic', serif",
   },
   {
     label: 'Georgia',
