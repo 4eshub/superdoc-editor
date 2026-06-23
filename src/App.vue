@@ -13,10 +13,13 @@
       :show-different-first-page="config.showDifferentFirstPage"
       :show-page-break="config.showPageBreak"
       :track-changes-visible="config.trackChangesVisible ?? false"
+      :can-comment="config.canComment ?? false"
       :labels="labels"
       @ready="postToParent({ type: 'ready' })"
       @update="postToParent({ type: 'update' })"
       @docx-selected="onDocxSelected"
+      @comment-selected="onCommentSelected"
+      @comment-saved="onCommentSaved"
     />
     <div v-else class="superdoc-waiting" role="status">Waiting for editor configuration...</div>
   </main>
@@ -96,6 +99,20 @@ function onDocxSelected(file: File) {
   })
 }
 
+function onCommentSelected(commentId: string) {
+  postToParent({
+    type: 'commentSelected',
+    payload: { commentId },
+  })
+}
+
+function onCommentSaved(payload: { type: string; commentId?: string }) {
+  postToParent({
+    type: 'commentSaved',
+    payload,
+  })
+}
+
 async function handleRequest(message: ParentToIframeMessage) {
   try {
     if (message.type === 'init') {
@@ -164,6 +181,16 @@ async function handleRequest(message: ParentToIframeMessage) {
         type: 'isEmptyResult',
         requestId: message.requestId,
         payload: { isEmpty: editorRef.value.isEmpty() },
+      })
+      return
+    }
+
+    if (message.type === 'scrollToComment') {
+      const found = await editorRef.value.scrollToComment(message.payload.commentId)
+      postToParent({
+        type: 'scrollToCommentResult',
+        requestId: message.requestId,
+        payload: { found },
       })
     }
   } catch (error) {
