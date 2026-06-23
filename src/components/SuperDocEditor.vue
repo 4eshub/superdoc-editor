@@ -11,6 +11,14 @@
     />
     <div v-if="!hideToolbar" id="toolbar" ref="toolbarRef" />
     <div
+      v-if="!hideToolbar && pageNumberNoticeText"
+      class="sd-hf-context-banner sd-page-number-notice"
+      role="alert"
+      test-id="document-page-number-notice"
+    >
+      {{ pageNumberNoticeText }}
+    </div>
+    <div
       v-if="!hideToolbar && headerFooterBannerText"
       class="sd-hf-context-banner"
       role="status"
@@ -28,6 +36,13 @@ import { BlankDOCX, SuperDoc } from 'superdoc'
 import 'superdoc/style.css'
 import '@/assets/superdoc-document-fonts.css'
 import { attachAutoParagraphDirection, wireAutoParagraphDirection } from '@/utils/autoParagraphDirection'
+import {
+  attachPageNumberKeyboardEscape,
+  canInsertPageNumber,
+  insertManagedPageNumber,
+  type PageNumberAlignment,
+  wirePageNumberKeyboardEscape,
+} from '@/utils/pageNumber'
 import { SUPERDOC_FONT_CONFIGS } from '@/utils/superdoc-fonts'
 import { DOCX_MIME, type SuperDocDocumentSource, type SuperDocLabels, type SuperDocUser } from '@/types/messages'
 
@@ -40,6 +55,11 @@ const DIFFERENT_FIRST_PAGE_ICON =
 const PAGE_BREAK_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V304H272c-8.8 0-16 7.2-16 16v32c0 8.8 7.2 16 16 16H384v80c0 8.8-7.2 16-16 16H64zM384 263.4L280.4 159.8c-4.2-4.2-10.3-6.6-16.4-6.6H256V64c0-8.8 7.2-16 16-16h32V160c0 17.7 14.3 32 32 32h112V263.4z"/><path fill="none" stroke="currentColor" stroke-width="32" stroke-dasharray="40 24" d="M48 256h288"/></svg>'
 
+const PAGE_NUMBER_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V448c0 8.8-7.2 16-16 16H64zM384 263.4L280.4 159.8c-4.2-4.2-10.3-6.6-16.4-6.6H256V64c0-8.8 7.2-16 16-16h32V160c0 17.7 14.3 32 32 32h112V263.4zM128 352h32v32H128v-32zm64 0h128v32H192v-32zM128 288h32v32H128v-32zm64 0h96v32H192v-32z"/></svg>'
+
+const PAGE_NUMBER_ALIGNMENTS: PageNumberAlignment[] = ['left', 'center', 'right']
+
 const props = withDefaults(
   defineProps<{
     document?: SuperDocDocumentSource
@@ -50,6 +70,7 @@ const props = withDefaults(
     showOpenDocx?: boolean
     showDifferentFirstPage?: boolean
     showPageBreak?: boolean
+    showPageNumber?: boolean
     trackChangesVisible?: boolean
     labels: SuperDocLabels
   }>(),
@@ -62,6 +83,7 @@ const props = withDefaults(
     showOpenDocx: false,
     showDifferentFirstPage: true,
     showPageBreak: true,
+    showPageNumber: true,
     trackChangesVisible: false,
   },
 )
@@ -78,11 +100,16 @@ const docxFileInputRef = ref<HTMLInputElement | null>(null)
 const differentFirstPageEnabled = ref(false)
 const hfSurface = ref('body')
 const hfVariant = ref<string | null>(null)
+const pageNumberNoticeText = ref('')
 const isReady = ref(false)
 
 let superdoc: any = null
+let headerFooterEditor: any = null
 let disconnectAutoDirection: (() => void) | null = null
+let disconnectPageNumberKeyboard: (() => void) | null = null
 let marginControlsGroup: HTMLElement | null = null
+let pageNumberNoticeTimeout: ReturnType<typeof setTimeout> | null = null
+let removePageNumberDropdownGuard: (() => void) | null = null
 
 const PX_PER_INCH = 96
 const DEFAULT_MARGIN_INCHES = 1
@@ -237,6 +264,148 @@ function removeMarginControls() {
   marginControlRefs.right = { slider: null, value: null }
 }
 
+
+function isHeaderFooterEditor(editor: any) {
+  return Boolean(editor?.options?.isHeaderOrFooter)
+}
+
+function getHeaderFooterEditor() {
+  const bodyEditor = getActiveEditor()
+  const presentationEditor = bodyEditor?.presentationEditor
+  const resolved = presentationEditor?.getActiveEditor?.()
+  if (isHeaderFooterEditor(resolved)) {
+    headerFooterEditor = resolved
+    return resolved
+  }
+  headerFooterEditor = null
+  return null
+}
+
+function refreshHeaderFooterContextFromPresentation() {
+  const bodyEditor = getActiveEditor()
+  const presentationEditor = bodyEditor?.presentationEditor
+  const resolved = presentationEditor?.getActiveEditor?.()
+  if (!isHeaderFooterEditor(resolved)) {
+    headerFooterEditor = null
+    return
+  }
+
+  headerFooterEditor = resolved
+  const headerFooterType = resolved.options?.headerFooterType
+  if (headerFooterType === 'header' || headerFooterType === 'footer') {
+    hfSurface.value = headerFooterType
+  }
+}
+
+function isPageNumberToolbarAvailable() {
+  if (!canMutateDocument()) return false
+  return Boolean(getActiveEditor())
+}
+
+function isInHeaderFooterContext() {
+  refreshHeaderFooterContextFromPresentation()
+  return canInsertPageNumber(getHeaderFooterEditor(), canMutateDocument())
+}
+
+function closePageNumberDropdown() {
+  const item = superdoc?.toolbar?.getToolbarItemByName?.('pageNumber')
+  if (item?.expand) item.expand.value = false
+}
+
+function wirePageNumberDropdownGuard() {
+  removePageNumberDropdownGuard?.()
+  removePageNumberDropdownGuard = null
+
+  if (props.hideToolbar || !props.showPageNumber || !toolbarRef.value) return
+
+  const onToolbarCapture = (event: Event) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (!target.closest('[data-item="btn-pageNumber"]')) return
+    if (!target.closest('.toolbar-dropdown-trigger')) return
+    if (isInHeaderFooterContext()) return
+
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    closePageNumberDropdown()
+    showPageNumberNotice(props.labels.pageNumberNeedsHeaderFooter)
+  }
+
+  toolbarRef.value.addEventListener('click', onToolbarCapture, true)
+  removePageNumberDropdownGuard = () => {
+    toolbarRef.value?.removeEventListener('click', onToolbarCapture, true)
+  }
+}
+
+function syncPageNumberToolbar() {
+  const item = superdoc?.toolbar?.getToolbarItemByName?.('pageNumber')
+  if (!item) return
+  item.setDisabled(!isPageNumberToolbarAvailable())
+}
+
+function showPageNumberNotice(message: string) {
+  pageNumberNoticeText.value = message
+  if (pageNumberNoticeTimeout) clearTimeout(pageNumberNoticeTimeout)
+  pageNumberNoticeTimeout = setTimeout(() => {
+    pageNumberNoticeText.value = ''
+    pageNumberNoticeTimeout = null
+  }, 6000)
+}
+
+function clearPageNumberNotice() {
+  if (pageNumberNoticeTimeout) {
+    clearTimeout(pageNumberNoticeTimeout)
+    pageNumberNoticeTimeout = null
+  }
+  pageNumberNoticeText.value = ''
+}
+
+function isBlockedFirstPagePageNumberContext() {
+  return (
+    props.showDifferentFirstPage &&
+    differentFirstPageEnabled.value &&
+    hfVariant.value === 'first' &&
+    (hfSurface.value === 'header' || hfSurface.value === 'footer')
+  )
+}
+
+function isPageNumberAlignment(value: unknown): value is PageNumberAlignment {
+  return typeof value === 'string' && PAGE_NUMBER_ALIGNMENTS.includes(value as PageNumberAlignment)
+}
+
+function insertPageNumber(alignment: PageNumberAlignment) {
+  if (!canMutateDocument()) return
+
+  if (!isInHeaderFooterContext()) {
+    showPageNumberNotice(props.labels.pageNumberNeedsHeaderFooter)
+    return
+  }
+
+  const editor = getHeaderFooterEditor()
+  if (!editor) return
+
+  if (isBlockedFirstPagePageNumberContext()) {
+    showPageNumberNotice(props.labels.pageNumberWrongFirstPageVariant)
+    return
+  }
+
+  clearPageNumberNotice()
+
+  editor.view?.focus?.()
+  const inserted = insertManagedPageNumber(editor, alignment)
+  if (!inserted) {
+    showPageNumberNotice(props.labels.pageNumberInsertFailed)
+    return
+  }
+
+  emit('update')
+}
+
+function handlePageNumberToolbarCommand({ argument }: { argument?: unknown }) {
+  if (!isPageNumberAlignment(argument)) return
+  insertPageNumber(argument)
+}
+
 const headerFooterBannerText = computed(() => {
   if (!props.showDifferentFirstPage || !differentFirstPageEnabled.value) return ''
 
@@ -317,18 +486,26 @@ function handleEditorUpdate(params: any) {
     hfSurface.value = params.surface
     if (params.surface === 'body') {
       hfVariant.value = null
+      headerFooterEditor = null
     } else if (params.sectionType !== undefined) {
       hfVariant.value = params.sectionType
     }
     if (params.surface === 'header' || params.surface === 'footer') {
       const hfEditor = params.sourceEditor ?? params.editor
-      if (hfEditor) attachAutoParagraphDirection(hfEditor, { bootstrap: true })
+      if (isHeaderFooterEditor(hfEditor)) {
+        headerFooterEditor = hfEditor
+      }
+      if (hfEditor) {
+        attachAutoParagraphDirection(hfEditor, { bootstrap: true })
+        attachPageNumberKeyboardEscape(hfEditor)
+      }
     }
   }
 
   syncHeaderFooterContext()
   syncDifferentFirstPageToolbar()
   syncPageBreakToolbar()
+  syncPageNumberToolbar()
   emit('update')
 }
 
@@ -551,6 +728,42 @@ function buildToolbarConfig() {
     })
   }
 
+  if (props.showPageNumber) {
+    customButtons.push({
+      type: 'dropdown',
+      name: 'pageNumber',
+      group: 'left',
+      icon: PAGE_NUMBER_ICON,
+      tooltip: props.labels.pageNumber,
+      allowWithoutEditor: false,
+      restoreEditorFocus: false,
+      hasCaret: true,
+      dropdownValueKey: 'key',
+      command: handlePageNumberToolbarCommand,
+      options: [
+        {
+          label: props.labels.pageNumberLeft,
+          key: 'left',
+          props: { 'data-item': 'btn-pageNumber-option-left', 'test-id': 'document-page-number-left' },
+        },
+        {
+          label: props.labels.pageNumberCenter,
+          key: 'center',
+          props: { 'data-item': 'btn-pageNumber-option-center', 'test-id': 'document-page-number-center' },
+        },
+        {
+          label: props.labels.pageNumberRight,
+          key: 'right',
+          props: { 'data-item': 'btn-pageNumber-option-right', 'test-id': 'document-page-number-right' },
+        },
+      ],
+      attributes: {
+        ariaLabel: props.labels.pageNumber,
+        'test-id': 'document-page-number-button',
+      },
+    })
+  }
+
   if (customButtons.length > 0) {
     config.customButtons = customButtons
   }
@@ -599,10 +812,12 @@ onMounted(() => {
       syncHeaderFooterContext()
       syncDifferentFirstPageToolbar()
       syncPageBreakToolbar()
+      syncPageNumberToolbar()
       superdoc?.toolbar?.updateToolbarState?.()
       nextTick(() => {
         injectMarginControls()
         syncMarginControls()
+        wirePageNumberDropdownGuard()
       })
       isReady.value = true
       emit('ready')
@@ -611,21 +826,30 @@ onMounted(() => {
       syncHeaderFooterContext()
       syncDifferentFirstPageToolbar()
       syncPageBreakToolbar()
+      syncPageNumberToolbar()
       superdoc?.toolbar?.updateToolbarState?.()
       nextTick(() => {
         injectMarginControls()
         syncMarginControls()
+        wirePageNumberDropdownGuard()
       })
     },
     onEditorUpdate: handleEditorUpdate,
   })
   disconnectAutoDirection = wireAutoParagraphDirection(superdoc)
+  disconnectPageNumberKeyboard = wirePageNumberKeyboardEscape(superdoc)
 })
 
 onUnmounted(() => {
   disconnectAutoDirection?.()
   disconnectAutoDirection = null
+  disconnectPageNumberKeyboard?.()
+  disconnectPageNumberKeyboard = null
   removeMarginControls()
+  removePageNumberDropdownGuard?.()
+  removePageNumberDropdownGuard = null
+  clearPageNumberNotice()
+  headerFooterEditor = null
   superdoc?.destroy()
   superdoc = null
 })

@@ -9,6 +9,15 @@ const en: SuperDocLabels = {
   editingOtherPagesHeader: 'Editing header for other pages',
   editingOtherPagesFooter: 'Editing footer for other pages',
   pageBreak: 'Insert page break',
+  pageNumber: 'Insert page number',
+  pageNumberLeft: 'Page number – left',
+  pageNumberCenter: 'Page number – center',
+  pageNumberRight: 'Page number – right',
+  pageNumberNeedsHeaderFooter:
+    'Click into the document header or footer first, then insert the page number.',
+  pageNumberWrongFirstPageVariant:
+    'Different first page is on. Insert page numbers in the header or footer for other pages, not the first page.',
+  pageNumberInsertFailed: 'Could not insert the page number. Try clicking into a header or footer first.',
 }
 
 const fr: SuperDocLabels = {
@@ -21,6 +30,16 @@ const fr: SuperDocLabels = {
   editingOtherPagesHeader: "Modification de l'en-tête des autres pages",
   editingOtherPagesFooter: 'Modification du pied de page des autres pages',
   pageBreak: 'Insérer un saut de page',
+  pageNumber: 'Insérer le numéro de page',
+  pageNumberLeft: 'Numéro de page – gauche',
+  pageNumberCenter: 'Numéro de page – centre',
+  pageNumberRight: 'Numéro de page – droite',
+  pageNumberNeedsHeaderFooter:
+    "Cliquez d'abord dans l'en-tête ou le pied de page du document, puis insérez le numéro de page.",
+  pageNumberWrongFirstPageVariant:
+    "La première page différente est activée. Insérez les numéros de page dans l'en-tête ou le pied de page des autres pages, pas de la première page.",
+  pageNumberInsertFailed:
+    "Impossible d'insérer le numéro de page. Essayez de cliquer dans un en-tête ou un pied de page.",
 }
 
 const ar: SuperDocLabels = {
@@ -32,6 +51,14 @@ const ar: SuperDocLabels = {
   editingOtherPagesHeader: 'تحرير ترويسة الصفحات الأخرى',
   editingOtherPagesFooter: 'تحرير تذييل الصفحات الأخرى',
   pageBreak: 'إدراج فاصل صفحة',
+  pageNumber: 'إدراج رقم الصفحة',
+  pageNumberLeft: 'رقم الصفحة – يسار',
+  pageNumberCenter: 'رقم الصفحة – وسط',
+  pageNumberRight: 'رقم الصفحة – يمين',
+  pageNumberNeedsHeaderFooter: 'انقر أولاً في ترويسة أو تذييل المستند، ثم أدرج رقم الصفحة.',
+  pageNumberWrongFirstPageVariant:
+    'الصفحة الأولى المختلفة مفعّلة. أدرج أرقام الصفحات في ترويسة أو تذييل الصفحات الأخرى، وليس الصفحة الأولى.',
+  pageNumberInsertFailed: 'تعذّر إدراج رقم الصفحة. جرّب النقر في ترويسة أو تذييل أولاً.',
 }
 
 const labelsByLocale: Record<string, SuperDocLabels> = {

@@ -12,6 +12,7 @@
       :show-open-docx="config.showOpenDocx"
       :show-different-first-page="config.showDifferentFirstPage"
       :show-page-break="config.showPageBreak"
+      :show-page-number="config.showPageNumber ?? true"
       :track-changes-visible="config.trackChangesVisible ?? false"
       :labels="labels"
       @ready="postToParent({ type: 'ready' })"
