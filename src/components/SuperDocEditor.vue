@@ -73,6 +73,7 @@ const props = withDefaults(
     showPageBreak?: boolean
     showPageNumber?: boolean
     trackChangesVisible?: boolean
+    canComment?: boolean
     labels: SuperDocLabels
   }>(),
   {
@@ -86,6 +87,7 @@ const props = withDefaults(
     showPageBreak: true,
     showPageNumber: true,
     trackChangesVisible: false,
+    canComment: false,
   },
 )
 
@@ -93,6 +95,8 @@ const emit = defineEmits<{
   ready: []
   update: []
   docxSelected: [file: File]
+  commentSelected: [commentId: string]
+  commentSaved: [payload: { type: string; commentId?: string }]
 }>()
 
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -465,6 +469,14 @@ function canMutateDocument() {
   return props.documentMode === 'editing' && props.role !== 'viewer'
 }
 
+function isViewReviewMode() {
+  return props.documentMode === 'viewing'
+}
+
+function commentsAreEnabled() {
+  return isViewReviewMode() && props.canComment
+}
+
 function getActiveEditor() {
   return superdoc?.activeEditor ?? null
 }
@@ -670,7 +682,7 @@ function buildToolbarConfig() {
   } = {
     hideButtons: false,
     responsiveToContainer: true,
-    excludeItems: ['documentMode', 'comments'],
+    excludeItems: ['documentMode'],
     fonts: SUPERDOC_FONT_CONFIGS,
   }
 
@@ -782,7 +794,7 @@ function buildToolbarConfig() {
 
 async function exportDocx(fileName = 'document.docx') {
   if (!superdoc) throw new Error('SuperDoc not initialized')
-  const blobs = await superdoc.exportEditorsToDOCX({ commentsType: 'clean' })
+  const blobs = await superdoc.exportEditorsToDOCX({ commentsType: 'external' })
   const blob = Array.isArray(blobs) ? blobs[0] : blobs
   if (!blob) throw new Error('SuperDoc export produced no document')
   const safeName = fileName.toLowerCase().endsWith('.docx') ? fileName : `${fileName}.docx`
@@ -800,9 +812,44 @@ function isEmpty() {
   return text.length === 0
 }
 
-defineExpose({ exportDocx, isEmpty, isReady, getPageStyles, updatePageStyle, setPageMargin })
+let lastSelectedCommentId = ''
+
+function selectComment(commentId: string | null | undefined) {
+  const id = commentId?.trim()
+  if (!id || id === lastSelectedCommentId) return
+  lastSelectedCommentId = id
+  emit('commentSelected', id)
+}
+
+async function scrollToComment(commentId: string): Promise<boolean> {
+  if (!superdoc || !commentId.trim()) return false
+  for (let i = 0; i < 20; i++) {
+    if (superdoc.scrollToComment(commentId)) return true
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return false
+}
+
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  const el = target.closest('[data-comment-thread-id], [data-comment-id], .superdoc-comment-highlight')
+  if (!el) return
+  const id =
+    el.getAttribute('data-comment-thread-id')?.trim() ||
+    el.getAttribute('data-comment-id')?.trim() ||
+    el.getAttribute('data-comment-ids')?.split(',')[0]?.trim() ||
+    el.getAttribute('data-comment-imported-ids')?.split(',')[0]?.trim()
+  if (id) selectComment(id)
+}
+
+defineExpose({ exportDocx, isEmpty, isReady, getPageStyles, updatePageStyle, setPageMargin, scrollToComment })
 
 onMounted(() => {
+  const commentsEnabled = commentsAreEnabled()
+  if (commentsEnabled) {
+    document.addEventListener('click', onDocumentClick, true)
+  }
   superdoc = new SuperDoc({
     selector: '#editor',
     ...(props.hideToolbar ? {} : { toolbar: '#toolbar' }),
@@ -812,9 +859,23 @@ onMounted(() => {
     contained: true,
     rulers: !props.hideToolbar,
     user: props.user,
+    comments: { visible: commentsEnabled },
+    ...(commentsEnabled ? { allowSelectionInViewMode: true } : {}),
     modules: {
       toolbar: buildToolbarConfig() as any,
-      comments: false,
+      ...(commentsEnabled
+        ? {
+            comments: {
+              displayMode: 'inline',
+              permissionResolver: ({ permission, defaultDecision }) => {
+                if (permission.startsWith('comment.')) {
+                  return props.canComment ? defaultDecision : false
+                }
+                return defaultDecision
+              },
+            },
+          }
+        : { comments: false }),
       ...(props.trackChangesVisible ? { trackChanges: { visible: true } } : {}),
     },
     onReady: () => {
@@ -844,12 +905,29 @@ onMounted(() => {
       })
     },
     onEditorUpdate: handleEditorUpdate,
+    ...(commentsEnabled
+      ? {
+          onCommentsUpdate: (params) => {
+            if ('activeCommentId' in params) {
+              selectComment((params as { activeCommentId?: string | null }).activeCommentId)
+            }
+            if (params.type === 'add' || params.type === 'update') {
+              const comment = params.comment as { commentId?: string; importedId?: string } | undefined
+              emit('commentSaved', {
+                type: params.type,
+                commentId: comment?.commentId ?? comment?.importedId,
+              })
+            }
+          },
+        }
+      : {}),
   })
   disconnectAutoDirection = wireAutoParagraphDirection(superdoc)
   disconnectPageNumberKeyboard = wirePageNumberKeyboardEscape(superdoc)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick, true)
   disconnectAutoDirection?.()
   disconnectAutoDirection = null
   disconnectPageNumberKeyboard?.()
@@ -877,7 +955,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   width: 100%;
-  overflow: hidden;
+  overflow: auto;
   margin-top:40px
 }
 
@@ -957,9 +1035,11 @@ onUnmounted(() => {
 #editor {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   margin-inline: auto;
   align-self: center;
+  position: relative;
+  z-index: 1;
 }
 
 #editor :deep(.superdoc__document) {
@@ -1022,5 +1102,35 @@ onUnmounted(() => {
 
 #editor :deep([dir='ltr']) {
   direction: ltr;
+}
+
+#editor :deep(.superdoc__comments-layer),
+#editor :deep(.comments-layer) {
+  z-index: 60 !important;
+}
+
+#editor :deep(.superdoc__tools) {
+  right: auto !important;
+  left: 0px !important;
+  z-index: 100 !important;
+}
+
+@media (max-width: 768px) {
+  #editor :deep(.superdoc__tools) {
+    left: 0 !important;
+  }
+}
+
+#editor :deep(.superdoc__compact-comment-popover),
+#editor :deep(.floating-comment),
+#editor :deep(.floating-comments),
+#editor :deep(.comment) {
+  z-index: 70 !important;
+}
+
+#editor :deep(.superdoc--with-sidebar .superdoc__document),
+#editor :deep(.superdoc--with-sidebar .superdoc__sub-document) {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 </style>

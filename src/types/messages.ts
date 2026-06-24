@@ -40,6 +40,7 @@ export type SuperDocInitPayload = {
   showPageBreak: boolean
   showPageNumber?: boolean
   trackChangesVisible?: boolean
+  canComment?: boolean
   locale?: string
   labels?: Partial<SuperDocLabels>
 }
@@ -78,6 +79,12 @@ export type ParentToIframeMessage =
         user: SuperDocUser
       }
     }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'scrollToComment'
+      requestId: string
+      payload: { commentId: string }
+    }
 
 export type IframeToParentMessage =
   | {
@@ -113,6 +120,24 @@ export type IframeToParentMessage =
       type: 'runDiffResult'
       requestId: string
       payload: { blob: Blob; hasChanges: boolean; changedComponents: string[] }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'scrollToCommentResult'
+      requestId: string
+      payload: { found: boolean }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'commentSelected'
+      requestId?: string
+      payload: { commentId: string }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'commentSaved'
+      requestId?: string
+      payload: { type: string; commentId?: string }
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
