@@ -19,6 +19,14 @@ export type SuperDocLabels = {
   editingOtherPagesHeader: string
   editingOtherPagesFooter: string
   pageBreak: string
+  pageNumber: string
+  pageNumberAtCursor: string
+  pageNumberLeft: string
+  pageNumberCenter: string
+  pageNumberRight: string
+  pageNumberNeedsHeaderFooter: string
+  pageNumberWrongFirstPageVariant: string
+  pageNumberInsertFailed: string
 }
 
 export type SuperDocInitPayload = {
@@ -30,6 +38,7 @@ export type SuperDocInitPayload = {
   showOpenDocx: boolean
   showDifferentFirstPage: boolean
   showPageBreak: boolean
+  showPageNumber?: boolean
   trackChangesVisible?: boolean
   locale?: string
   labels?: Partial<SuperDocLabels>
