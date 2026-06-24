@@ -722,7 +722,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   width: 100%;
-  overflow: hidden;
+  overflow: auto;
   margin-top:40px
 }
 
@@ -874,6 +874,18 @@ onUnmounted(() => {
 #editor :deep(.superdoc__comments-layer),
 #editor :deep(.comments-layer) {
   z-index: 60 !important;
+}
+
+#editor :deep(.superdoc__tools) {
+  right: auto !important;
+  left: 0px !important;
+  z-index: 100 !important;
+}
+
+@media (max-width: 768px) {
+  #editor :deep(.superdoc__tools) {
+    left: 0 !important;
+  }
 }
 
 #editor :deep(.superdoc__compact-comment-popover),
