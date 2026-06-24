@@ -1,9 +1,11 @@
 export type PageNumberAlignment = 'left' | 'center' | 'right'
 
-export const PAGE_NUMBER_CC_TAG = '4es:auto-page-number'
+export type PageNumberInsertOption = PageNumberAlignment | 'custom'
+
+const PAGE_NUMBER_CC_TAG = '4es:auto-page-number'
 
 type ContentControlTarget = {
-  kind: 'block' | 'inline'
+  kind: 'block'
   nodeType: 'sdt'
   nodeId: string
 }
@@ -70,9 +72,7 @@ function findSdtNodeById(doc: any, nodeId: string): { node: any; pos: number } |
   let found: { node: any; pos: number } | null = null
   doc.descendants((node: any, pos: number) => {
     if (found) return false
-    const isBlock = node.type?.name === 'structuredContentBlock'
-    const isInline = node.type?.name === 'structuredContent'
-    if (!isBlock && !isInline) return undefined
+    if (node.type?.name !== 'structuredContentBlock') return undefined
     if (String(node.attrs?.id ?? '') !== nodeId) return undefined
     found = { node, pos }
     return false
@@ -80,7 +80,7 @@ function findSdtNodeById(doc: any, nodeId: string): { node: any; pos: number } |
   return found
 }
 
-export function findManagedPageNumber(editor: any): ManagedPageNumber | null {
+function findManagedPageNumber(editor: any): ManagedPageNumber | null {
   if (!editor?.doc?.contentControls?.selectByTag) return null
 
   try {
@@ -100,55 +100,46 @@ export function findManagedPageNumber(editor: any): ManagedPageNumber | null {
   }
 }
 
-function removeOrphanPageNumbers(editor: any) {
-  const blocksToRemove: Array<{ from: number; to: number }> = []
+function isInsideManagedPageNumberBlock(editor: any, pageNumberPos: number) {
+  const $pos = editor.state.doc.resolve(pageNumberPos)
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const ancestor = $pos.node(depth)
+    if (
+      ancestor.type?.name === 'structuredContentBlock' &&
+      ancestor.attrs?.tag === PAGE_NUMBER_CC_TAG
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function removeInlinePageNumbers(editor: any) {
+  const toDelete: number[] = []
+
   editor.state.doc.descendants((node: any, pos: number) => {
     if (node.type?.name !== 'page-number') return undefined
-
-    let parentSdt: any = null
-    let blockPos = pos
-    let blockNode = node
-
-    const $pos = editor.state.doc.resolve(pos)
-    for (let depth = $pos.depth; depth > 0; depth--) {
-      const ancestor = $pos.node(depth)
-      if (ancestor.type?.name === 'structuredContentBlock' || ancestor.type?.name === 'structuredContent') {
-        parentSdt = ancestor
-        blockPos = $pos.before(depth)
-        blockNode = ancestor
-        break
-      }
-      if (ancestor.type?.name === 'paragraph') {
-        blockPos = $pos.before(depth)
-        blockNode = ancestor
-      }
-    }
-
-    if (parentSdt?.attrs?.tag === PAGE_NUMBER_CC_TAG) return undefined
-
-    const from = blockPos
-    const to = blockPos + blockNode.nodeSize
-    if (!blocksToRemove.some((range) => range.from === from && range.to === to)) {
-      blocksToRemove.push({ from, to })
-    }
-    return false
+    if (isInsideManagedPageNumberBlock(editor, pos)) return undefined
+    toDelete.push(pos)
+    return undefined
   })
 
-  if (blocksToRemove.length === 0) return
+  if (toDelete.length === 0) return
 
   const tr = editor.state.tr
-  blocksToRemove
-    .sort((a, b) => b.from - a.from)
-    .forEach(({ from, to }) => {
-      tr.delete(from, to)
+  toDelete
+    .sort((a, b) => b - a)
+    .forEach((pos) => {
+      const node = tr.doc.nodeAt(pos)
+      if (node?.type?.name === 'page-number') tr.delete(pos, pos + node.nodeSize)
     })
   if (tr.docChanged) editor.view?.dispatch(tr)
 }
 
-export function removeManagedPageNumber(editor: any, managed?: ManagedPageNumber | null) {
+function removeManagedPageNumber(editor: any, managed?: ManagedPageNumber | null) {
   const info = managed ?? findManagedPageNumber(editor)
   if (!info) {
-    removeOrphanPageNumbers(editor)
+    removeInlinePageNumbers(editor)
     return
   }
 
@@ -162,7 +153,7 @@ export function removeManagedPageNumber(editor: any, managed?: ManagedPageNumber
     }
   }
 
-  removeOrphanPageNumbers(editor)
+  removeInlinePageNumbers(editor)
 }
 
 function runCommand(editor: any, fn: () => unknown) {
@@ -273,7 +264,7 @@ function isSelectionOnManagedPageNumber(editor: any) {
   return false
 }
 
-export function escapeFromManagedPageNumber(editor: any) {
+function escapeFromManagedPageNumber(editor: any) {
   const located = findManagedPageNumberBlock(editor)
   if (!located) return false
   return focusFreshParagraphAfter(editor, located.pos, located.node)
@@ -376,12 +367,29 @@ function buildPageNumberParagraphJson(alignment: PageNumberAlignment, isRtl: boo
   }
 }
 
+export function insertInlinePageNumber(editor: any): boolean {
+  if (!editor?.commands?.addAutoPageNumber) return false
+  if (!editor.options?.isHeaderOrFooter) return false
+
+  removeManagedPageNumber(editor)
+
+  const inserted = runCommand(editor, () => editor.commands.addAutoPageNumber())
+  if (!inserted) return false
+
+  editor.view?.focus?.()
+  editor.presentationEditor?.focus?.()
+  return true
+}
+
 export function insertManagedPageNumber(editor: any, alignment: PageNumberAlignment): boolean {
   if (!editor?.commands?.insertStructuredContentBlock) return false
   if (!editor.options?.isHeaderOrFooter) return false
 
   const existing = findManagedPageNumber(editor)
-  if (existing?.alignment === alignment) return false
+  if (existing?.alignment === alignment) {
+    removeInlinePageNumbers(editor)
+    return false
+  }
 
   removeManagedPageNumber(editor, existing)
 
@@ -428,8 +436,10 @@ export function insertManagedPageNumber(editor: any, alignment: PageNumberAlignm
 
 export function canInsertPageNumber(editor: any, canMutate: boolean) {
   if (!canMutate) return false
-  if (!editor?.commands?.insertStructuredContentBlock) return false
-  return Boolean(editor.options?.isHeaderOrFooter)
+  if (!editor?.options?.isHeaderOrFooter) return false
+  return Boolean(
+    editor.commands?.addAutoPageNumber || editor.commands?.insertStructuredContentBlock,
+  )
 }
 
 const keyboardEscapeWired = new WeakSet<object>()

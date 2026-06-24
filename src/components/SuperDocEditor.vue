@@ -39,8 +39,9 @@ import { attachAutoParagraphDirection, wireAutoParagraphDirection } from '@/util
 import {
   attachPageNumberKeyboardEscape,
   canInsertPageNumber,
+  insertInlinePageNumber,
   insertManagedPageNumber,
-  type PageNumberAlignment,
+  type PageNumberInsertOption,
   wirePageNumberKeyboardEscape,
 } from '@/utils/pageNumber'
 import { SUPERDOC_FONT_CONFIGS } from '@/utils/superdoc-fonts'
@@ -58,7 +59,7 @@ const PAGE_BREAK_ICON =
 const PAGE_NUMBER_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" fill="currentColor" aria-hidden="true"><path d="M64 464c-8.8 0-16-7.2-16-16V64c0-8.8 7.2-16 16-16H224v80c0 17.7 14.3 32 32 32h80V448c0 8.8-7.2 16-16 16H64zM384 263.4L280.4 159.8c-4.2-4.2-10.3-6.6-16.4-6.6H256V64c0-8.8 7.2-16 16-16h32V160c0 17.7 14.3 32 32 32h112V263.4zM128 352h32v32H128v-32zm64 0h128v32H192v-32zM128 288h32v32H128v-32zm64 0h96v32H192v-32z"/></svg>'
 
-const PAGE_NUMBER_ALIGNMENTS: PageNumberAlignment[] = ['left', 'center', 'right']
+const PAGE_NUMBER_INSERT_OPTIONS: PageNumberInsertOption[] = ['custom', 'left', 'center', 'right']
 
 const props = withDefaults(
   defineProps<{
@@ -369,11 +370,11 @@ function isBlockedFirstPagePageNumberContext() {
   )
 }
 
-function isPageNumberAlignment(value: unknown): value is PageNumberAlignment {
-  return typeof value === 'string' && PAGE_NUMBER_ALIGNMENTS.includes(value as PageNumberAlignment)
+function isPageNumberInsertOption(value: unknown): value is PageNumberInsertOption {
+  return typeof value === 'string' && PAGE_NUMBER_INSERT_OPTIONS.includes(value as PageNumberInsertOption)
 }
 
-function insertPageNumber(alignment: PageNumberAlignment) {
+function insertPageNumber(option: PageNumberInsertOption) {
   if (!canMutateDocument()) return
 
   if (!isInHeaderFooterContext()) {
@@ -392,7 +393,10 @@ function insertPageNumber(alignment: PageNumberAlignment) {
   clearPageNumberNotice()
 
   editor.view?.focus?.()
-  const inserted = insertManagedPageNumber(editor, alignment)
+  const inserted =
+    option === 'custom'
+      ? insertInlinePageNumber(editor)
+      : insertManagedPageNumber(editor, option)
   if (!inserted) {
     showPageNumberNotice(props.labels.pageNumberInsertFailed)
     return
@@ -402,7 +406,7 @@ function insertPageNumber(alignment: PageNumberAlignment) {
 }
 
 function handlePageNumberToolbarCommand({ argument }: { argument?: unknown }) {
-  if (!isPageNumberAlignment(argument)) return
+  if (!isPageNumberInsertOption(argument)) return
   insertPageNumber(argument)
 }
 
@@ -741,6 +745,11 @@ function buildToolbarConfig() {
       dropdownValueKey: 'key',
       command: handlePageNumberToolbarCommand,
       options: [
+        {
+          label: props.labels.pageNumberAtCursor,
+          key: 'custom',
+          props: { 'data-item': 'btn-pageNumber-option-custom', 'test-id': 'document-page-number-custom' },
+        },
         {
           label: props.labels.pageNumberLeft,
           key: 'left',

@@ -20,6 +20,7 @@ export type SuperDocLabels = {
   editingOtherPagesFooter: string
   pageBreak: string
   pageNumber: string
+  pageNumberAtCursor: string
   pageNumberLeft: string
   pageNumberCenter: string
   pageNumberRight: string
