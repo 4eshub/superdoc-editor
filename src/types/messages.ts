@@ -27,6 +27,7 @@ export type SuperDocLabels = {
   pageNumberNeedsHeaderFooter: string
   pageNumberWrongFirstPageVariant: string
   pageNumberInsertFailed: string
+  copyCommentLink: string
 }
 
 export type SuperDocInitPayload = {
@@ -138,6 +139,12 @@ export type IframeToParentMessage =
       type: 'commentSaved'
       requestId?: string
       payload: { type: string; commentId?: string }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'copyCommentLinkRequest'
+      requestId?: string
+      payload: { commentId: string }
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE

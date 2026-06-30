@@ -97,6 +97,7 @@ const emit = defineEmits<{
   docxSelected: [file: File]
   commentSelected: [commentId: string]
   commentSaved: [payload: { type: string; commentId?: string }]
+  copyCommentLinkRequest: [commentId: string]
 }>()
 
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -115,6 +116,11 @@ let disconnectPageNumberKeyboard: (() => void) | null = null
 let marginControlsGroup: HTMLElement | null = null
 let pageNumberNoticeTimeout: ReturnType<typeof setTimeout> | null = null
 let removePageNumberDropdownGuard: (() => void) | null = null
+let commentCopyLinkObserver: MutationObserver | null = null
+
+const COMMENT_COPY_LINK_ATTR = 'data-superdoc-copy-link-wired'
+const COMMENT_COPY_LINK_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" height="14" width="14" viewBox="0 0 640 640"><!--!Font Awesome Free v7.3.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2026 Fonticons, Inc.--><path d="M451.5 160C434.9 160 418.8 164.5 404.7 172.7C388.9 156.7 370.5 143.3 350.2 133.2C378.4 109.2 414.3 96 451.5 96C537.9 96 608 166 608 252.5C608 294 591.5 333.8 562.2 363.1L491.1 434.2C461.8 463.5 422 480 380.5 480C294.1 480 224 410 224 323.5C224 322 224 320.5 224.1 319C224.6 301.3 239.3 287.4 257 287.9C274.7 288.4 288.6 303.1 288.1 320.8C288.1 321.7 288.1 322.6 288.1 323.4C288.1 374.5 329.5 415.9 380.6 415.9C405.1 415.9 428.6 406.2 446 388.8L517.1 317.7C534.4 300.4 544.2 276.8 544.2 252.3C544.2 201.2 502.8 159.8 451.7 159.8zM307.2 237.3C305.3 236.5 303.4 235.4 301.7 234.2C289.1 227.7 274.7 224 259.6 224C235.1 224 211.6 233.7 194.2 251.1L123.1 322.2C105.8 339.5 96 363.1 96 387.6C96 438.7 137.4 480.1 188.5 480.1C205 480.1 221.1 475.7 235.2 467.5C251 483.5 269.4 496.9 289.8 507C261.6 530.9 225.8 544.2 188.5 544.2C102.1 544.2 32 474.2 32 387.7C32 346.2 48.5 306.4 77.8 277.1L148.9 206C178.2 176.7 218 160.2 259.5 160.2C346.1 160.2 416 230.8 416 317.1C416 318.4 416 319.7 416 321C415.6 338.7 400.9 352.6 383.2 352.2C365.5 351.8 351.6 337.1 352 319.4C352 318.6 352 317.9 352 317.1C352 283.4 334 253.8 307.2 237.5z"/></svg>'
 
 const PX_PER_INCH = 96
 const DEFAULT_MARGIN_INCHES = 1
@@ -843,6 +849,75 @@ function onDocumentClick(event: MouseEvent) {
   if (id) selectComment(id)
 }
 
+function getCommentIdFromDialog(dialog: Element): string | null {
+  const threadId = dialog.getAttribute('data-comment-thread-id')?.trim()
+  if (threadId && threadId !== 'pending') return threadId
+
+  const instanceId = dialog.getAttribute('data-comment-instance-id')?.trim()
+  if (instanceId && instanceId !== 'pending') return instanceId
+
+  const host = dialog.closest('[data-comment-thread-id], [data-comment-id]')
+  const hostThreadId = host?.getAttribute('data-comment-thread-id')?.trim()
+  if (hostThreadId && hostThreadId !== 'pending') return hostThreadId
+
+  const hostCommentId = host?.getAttribute('data-comment-id')?.trim()
+  if (hostCommentId && hostCommentId !== 'pending') return hostCommentId
+
+  return null
+}
+
+function injectCommentCopyLinkButton(dialog: HTMLElement) {
+  if (dialog.hasAttribute(COMMENT_COPY_LINK_ATTR)) return
+
+  const commentId = getCommentIdFromDialog(dialog)
+  if (!commentId) return
+
+  const header = dialog.querySelector('.comment-header')
+  if (!header) return
+
+  dialog.setAttribute(COMMENT_COPY_LINK_ATTR, 'true')
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'superdoc-comment-copy-link-btn'
+  button.title = props.labels.copyCommentLink
+  button.setAttribute('aria-label', props.labels.copyCommentLink)
+  button.innerHTML = COMMENT_COPY_LINK_ICON
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    event.preventDefault()
+    emit('copyCommentLinkRequest', commentId)
+  })
+
+  const overflowMenu = header.querySelector('.overflow-menu')
+  if (overflowMenu) {
+    header.insertBefore(button, overflowMenu)
+  } else {
+    header.appendChild(button)
+  }
+}
+
+function syncCommentCopyLinkButtons() {
+  if (!commentsAreEnabled() || !editorRef.value) return
+  editorRef.value
+    .querySelectorAll('.comments-dialog')
+    .forEach((dialog) => injectCommentCopyLinkButton(dialog as HTMLElement))
+}
+
+function wireCommentCopyLinkButtons() {
+  if (!commentsAreEnabled() || !editorRef.value) return
+
+  syncCommentCopyLinkButtons()
+  commentCopyLinkObserver?.disconnect()
+  commentCopyLinkObserver = new MutationObserver(() => syncCommentCopyLinkButtons())
+  commentCopyLinkObserver.observe(editorRef.value, { childList: true, subtree: true })
+}
+
+function disconnectCommentCopyLinkButtons() {
+  commentCopyLinkObserver?.disconnect()
+  commentCopyLinkObserver = null
+}
+
 defineExpose({ exportDocx, isEmpty, isReady, getPageStyles, updatePageStyle, setPageMargin, scrollToComment })
 
 onMounted(() => {
@@ -888,6 +963,7 @@ onMounted(() => {
         injectMarginControls()
         syncMarginControls()
         wirePageNumberDropdownGuard()
+        wireCommentCopyLinkButtons()
       })
       isReady.value = true
       emit('ready')
@@ -902,6 +978,7 @@ onMounted(() => {
         injectMarginControls()
         syncMarginControls()
         wirePageNumberDropdownGuard()
+        wireCommentCopyLinkButtons()
       })
     },
     onEditorUpdate: handleEditorUpdate,
@@ -918,6 +995,7 @@ onMounted(() => {
                 commentId: comment?.commentId ?? comment?.importedId,
               })
             }
+            nextTick(() => syncCommentCopyLinkButtons())
           },
         }
       : {}),
@@ -932,6 +1010,7 @@ onUnmounted(() => {
   disconnectAutoDirection = null
   disconnectPageNumberKeyboard?.()
   disconnectPageNumberKeyboard = null
+  disconnectCommentCopyLinkButtons()
   removeMarginControls()
   removePageNumberDropdownGuard?.()
   removePageNumberDropdownGuard = null
@@ -1126,6 +1205,33 @@ onUnmounted(() => {
 #editor :deep(.floating-comments),
 #editor :deep(.comment) {
   z-index: 70 !important;
+}
+
+#editor :deep(.comment-header) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+#editor :deep(.superdoc-comment-copy-link-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+#editor :deep(.superdoc-comment-copy-link-btn:hover) {
+  background: #f1f5f9;
+  color: #334155;
 }
 
 #editor :deep(.superdoc--with-sidebar .superdoc__document),
