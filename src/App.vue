@@ -21,6 +21,7 @@
       @docx-selected="onDocxSelected"
       @comment-selected="onCommentSelected"
       @comment-saved="onCommentSaved"
+      @copy-comment-link-request="onCopyCommentLinkRequest"
     />
     <div v-else class="superdoc-waiting" role="status">Waiting for editor configuration...</div>
   </main>
@@ -111,6 +112,13 @@ function onCommentSaved(payload: { type: string; commentId?: string }) {
   postToParent({
     type: 'commentSaved',
     payload,
+  })
+}
+
+function onCopyCommentLinkRequest(commentId: string) {
+  postToParent({
+    type: 'copyCommentLinkRequest',
+    payload: { commentId },
   })
 }
 
