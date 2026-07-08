@@ -71,6 +71,11 @@ export type ParentToIframeMessage =
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'hasComments'
+      requestId: string
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
       type: 'runDiff'
       requestId: string
       payload: {
@@ -114,6 +119,12 @@ export type IframeToParentMessage =
       type: 'isEmptyResult'
       requestId: string
       payload: { isEmpty: boolean }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'hasCommentsResult'
+      requestId: string
+      payload: { hasComments: boolean }
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE

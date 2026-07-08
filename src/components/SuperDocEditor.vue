@@ -830,6 +830,30 @@ async function scrollToComment(commentId: string): Promise<boolean> {
   return false
 }
 
+function hasComments(): boolean {
+  if (!superdoc) return false
+
+  const editor = getActiveEditor() as {
+    doc?: { comments?: { list?: () => unknown[] } }
+  } | null
+
+  try {
+    const list = editor?.doc?.comments?.list?.()
+    if (Array.isArray(list) && list.length > 0) return true
+  } catch {
+    // Fall through to DOM check.
+  }
+
+  const root = document.getElementById('editor')
+  if (!root) return false
+
+  return Boolean(
+    root.querySelector(
+      '[data-comment-thread-id], [data-comment-id], [data-comment-ids], .superdoc-comment-highlight',
+    ),
+  )
+}
+
 function onDocumentClick(event: MouseEvent) {
   const target = event.target
   if (!(target instanceof Element)) return
@@ -843,7 +867,16 @@ function onDocumentClick(event: MouseEvent) {
   if (id) selectComment(id)
 }
 
-defineExpose({ exportDocx, isEmpty, isReady, getPageStyles, updatePageStyle, setPageMargin, scrollToComment })
+defineExpose({
+  exportDocx,
+  isEmpty,
+  isReady,
+  getPageStyles,
+  updatePageStyle,
+  setPageMargin,
+  scrollToComment,
+  hasComments,
+})
 
 onMounted(() => {
   const commentsEnabled = commentsAreEnabled()

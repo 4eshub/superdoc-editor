@@ -186,6 +186,15 @@ async function handleRequest(message: ParentToIframeMessage) {
       return
     }
 
+    if (message.type === 'hasComments') {
+      postToParent({
+        type: 'hasCommentsResult',
+        requestId: message.requestId,
+        payload: { hasComments: editorRef.value.hasComments() },
+      })
+      return
+    }
+
     if (message.type === 'scrollToComment') {
       const found = await editorRef.value.scrollToComment(message.payload.commentId)
       postToParent({

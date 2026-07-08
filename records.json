@@ -1,0 +1,143 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "4eshub.com.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "216.198.79.1"
+                }
+            ]
+        },
+        {
+            "Name": "4eshub.com.",
+            "Type": "MX",
+            "TTL": 1,
+            "ResourceRecords": [
+                {
+                    "Value": "1 SMTP.GOOGLE.COM."
+                }
+            ]
+        },
+        {
+            "Name": "4eshub.com.",
+            "Type": "NS",
+            "TTL": 1,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-1370.awsdns-43.org"
+                },
+                {
+                    "Value": "ns-1701.awsdns-20.co.uk"
+                },
+                {
+                    "Value": "ns-209.awsdns-26.com"
+                },
+                {
+                    "Value": "ns-677.awsdns-20.net"
+                }
+            ]
+        },
+        {
+            "Name": "4eshub.com.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-1701.awsdns-20.co.uk. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        },
+        {
+            "Name": "4eshub.com.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"google-site-verification=nO5MCqyHuKdaytEnMG2v5vBZVzWAwbad_z3paGNDNGE\""
+                }
+            ]
+        },
+        {
+            "Name": "_f5d7e493a9c650644d953d720c1d798a.4eshub.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "_3648f1ff11d7a6450d23288b5e5c9f65.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "admin-api.4eshub.com.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "15.156.196.144"
+                }
+            ]
+        },
+        {
+            "Name": "admin.4eshub.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "d31rjiec2zajmc.cloudfront.net."
+                }
+            ]
+        },
+        {
+            "Name": "api.4eshub.com.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "15.156.196.144"
+                }
+            ]
+        },
+        {
+            "Name": "app.4eshub.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "d2z50qnjfy6vi.cloudfront.net."
+                }
+            ]
+        },
+        {
+            "Name": "cpvrmvbmus5g.4eshub.com.",
+            "Type": "CNAME",
+            "TTL": 1,
+            "ResourceRecords": [
+                {
+                    "Value": "gv-jozmon37ducxai.dv.googlehosted.com."
+                }
+            ]
+        },
+        {
+            "Name": "dev-api.4eshub.com.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "16.54.157.10"
+                }
+            ]
+        },
+        {
+            "Name": "www.4eshub.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "888221e4686db843.vercel-dns-017.com."
+                }
+            ]
+        }
+    ]
+}
