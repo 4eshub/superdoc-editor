@@ -19,6 +19,7 @@ const en: SuperDocLabels = {
   pageNumberWrongFirstPageVariant:
     'Different first page is on. Insert page numbers in the header or footer for other pages, not the first page.',
   pageNumberInsertFailed: 'Could not insert the page number. Try clicking into a header or footer first.',
+  copyCommentLink: 'Copy comment link',
 }
 
 const fr: SuperDocLabels = {
@@ -42,6 +43,7 @@ const fr: SuperDocLabels = {
     "La première page différente est activée. Insérez les numéros de page dans l'en-tête ou le pied de page des autres pages, pas de la première page.",
   pageNumberInsertFailed:
     "Impossible d'insérer le numéro de page. Essayez de cliquer dans un en-tête ou un pied de page.",
+  copyCommentLink: 'Copier le lien du commentaire',
 }
 
 const ar: SuperDocLabels = {
@@ -62,6 +64,7 @@ const ar: SuperDocLabels = {
   pageNumberWrongFirstPageVariant:
     'الصفحة الأولى المختلفة مفعّلة. أدرج أرقام الصفحات في ترويسة أو تذييل الصفحات الأخرى، وليس الصفحة الأولى.',
   pageNumberInsertFailed: 'تعذّر إدراج رقم الصفحة. جرّب النقر في ترويسة أو تذييل أولاً.',
+  copyCommentLink: 'نسخ رابط التعليق',
 }
 
 const labelsByLocale: Record<string, SuperDocLabels> = {
