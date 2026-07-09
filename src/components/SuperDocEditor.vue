@@ -9,7 +9,7 @@
       test-id="document-open-docx-input"
       @change="onDocxFileInputChange"
     />
-    <div v-if="!hideToolbar" id="toolbar" ref="toolbarRef" />
+    <div v-if="showToolbarChrome()" id="toolbar" ref="toolbarRef" :class="{ 'sd-highlight-toolbar': isHighlightToolbarMode() }" />
     <div
       v-if="!hideToolbar && pageNumberNoticeText"
       class="sd-hf-context-banner sd-page-number-notice"
@@ -45,6 +45,21 @@ import {
   wirePageNumberKeyboardEscape,
 } from '@/utils/pageNumber'
 import { SUPERDOC_FONT_CONFIGS } from '@/utils/superdoc-fonts'
+import {
+  findBlockScrollPos,
+  findCanonicalNodeIdInDoc,
+  getActiveEditorFromSuperdoc,
+  getBlockTargetFromPointer as resolveBlockTargetFromPointer,
+  getNodeIdFromPointer as resolveNodeIdFromPointer,
+  getPresentationEditorFromSuperdoc,
+  resolveStableNodeIdFromDom,
+} from '@/utils/blockNodeId'
+import {
+  applyTextHighlight,
+  hasHighlightableSelection,
+  HIGHLIGHT_SWATCHES,
+  wireHighlightOnlyGuard,
+} from '@/utils/highlightOnly'
 import { DOCX_MIME, type SuperDocDocumentSource, type SuperDocLabels, type SuperDocUser } from '@/types/messages'
 
 const OPEN_DOCX_ICON =
@@ -74,6 +89,7 @@ const props = withDefaults(
     showPageNumber?: boolean
     trackChangesVisible?: boolean
     canComment?: boolean
+    showHighlightToolbar?: boolean
     labels: SuperDocLabels
   }>(),
   {
@@ -88,6 +104,7 @@ const props = withDefaults(
     showPageNumber: true,
     trackChangesVisible: false,
     canComment: false,
+    showHighlightToolbar: false,
   },
 )
 
@@ -97,7 +114,9 @@ const emit = defineEmits<{
   docxSelected: [file: File]
   commentSelected: [commentId: string]
   commentSaved: [payload: { type: string; commentId?: string }]
+  highlightSaved: []
   copyCommentLinkRequest: [commentId: string]
+  copyNodeLinkRequest: [payload: { nodeId: string; offset?: number }]
 }>()
 
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -117,6 +136,10 @@ let marginControlsGroup: HTMLElement | null = null
 let pageNumberNoticeTimeout: ReturnType<typeof setTimeout> | null = null
 let removePageNumberDropdownGuard: (() => void) | null = null
 let commentCopyLinkObserver: MutationObserver | null = null
+let nodeContextMenuEl: HTMLElement | null = null
+let activeContextMenuNodeId: string | null = null
+let activeContextMenuNodeOffset: number | null = null
+let removeNodeContextMenuListeners: (() => void) | null = null
 
 const COMMENT_COPY_LINK_ATTR = 'data-superdoc-copy-link-wired'
 const COMMENT_COPY_LINK_ICON =
@@ -471,20 +494,74 @@ function onDocxFileInputChange(event: Event) {
   input.value = ''
 }
 
+function isHighlightToolbarMode() {
+  return props.showHighlightToolbar
+}
+
+function showToolbarChrome() {
+  return !props.hideToolbar && !isHighlightToolbarMode()
+}
+
+function effectiveDocumentMode() {
+  return isHighlightToolbarMode() ? 'editing' : props.documentMode
+}
+
+function effectiveRole() {
+  return isHighlightToolbarMode() ? 'editor' : props.role
+}
+
 function canMutateDocument() {
+  if (isHighlightToolbarMode()) return false
   return props.documentMode === 'editing' && props.role !== 'viewer'
 }
 
 function isViewReviewMode() {
-  return props.documentMode === 'viewing'
+  return props.documentMode === 'viewing' && !isHighlightToolbarMode()
 }
 
 function commentsAreEnabled() {
-  return isViewReviewMode() && props.canComment
+  return props.canComment && (props.documentMode === 'viewing' || isHighlightToolbarMode())
+}
+
+function getPresentationEditor() {
+  return getPresentationEditorFromSuperdoc(superdoc)
 }
 
 function getActiveEditor() {
-  return superdoc?.activeEditor ?? null
+  return getActiveEditorFromSuperdoc(superdoc) as any
+}
+
+function getNodeIdFromElement(el: Element): string | null {
+  return resolveStableNodeIdFromDom(el, getActiveEditor())
+}
+
+function getNodeIdFromPointer(clientX: number, clientY: number): string | null {
+  return resolveNodeIdFromPointer(
+    clientX,
+    clientY,
+    getActiveEditor(),
+    getPresentationEditor()
+  )
+}
+
+function getBlockTargetAtPointer(clientX: number, clientY: number) {
+  return resolveBlockTargetFromPointer(
+    clientX,
+    clientY,
+    getActiveEditor(),
+    getPresentationEditor()
+  )
+}
+
+function notifyHighlightSaved() {
+  if (!isHighlightToolbarMode()) return
+  emit('highlightSaved')
+}
+
+function applyContextMenuHighlight(color: string | null): boolean {
+  if (!applyTextHighlight(getActiveEditor(), color)) return false
+  notifyHighlightSaved()
+  return true
 }
 
 function getFirstSection(editor: any) {
@@ -501,6 +578,41 @@ function syncHeaderFooterContext() {
 
   const section = getFirstSection(editor)
   differentFirstPageEnabled.value = Boolean(section?.titlePage)
+}
+
+function attachHighlightOnlyGuard(editor: unknown) {
+  if (!isHighlightToolbarMode()) return
+  wireHighlightOnlyGuard(editor as Parameters<typeof wireHighlightOnlyGuard>[0])
+}
+
+function handleEditorReady() {
+  syncHeaderFooterContext()
+  syncDifferentFirstPageToolbar()
+  syncPageBreakToolbar()
+  syncPageNumberToolbar()
+  superdoc?.toolbar?.updateToolbarState?.()
+  nextTick(() => {
+    injectMarginControls()
+    syncMarginControls()
+    wirePageNumberDropdownGuard()
+    wireCommentCopyLinkButtons()
+  })
+  isReady.value = true
+  emit('ready')
+}
+
+function syncEditorChrome() {
+  syncHeaderFooterContext()
+  syncDifferentFirstPageToolbar()
+  syncPageBreakToolbar()
+  syncPageNumberToolbar()
+  superdoc?.toolbar?.updateToolbarState?.()
+  nextTick(() => {
+    injectMarginControls()
+    syncMarginControls()
+    wirePageNumberDropdownGuard()
+    wireCommentCopyLinkButtons()
+  })
 }
 
 function handleEditorUpdate(params: any) {
@@ -684,12 +796,26 @@ function buildToolbarConfig() {
     responsiveToContainer: boolean
     excludeItems: string[]
     fonts: typeof SUPERDOC_FONT_CONFIGS
+    groups?: Record<string, string[]>
     customButtons?: Record<string, unknown>[]
   } = {
     hideButtons: false,
     responsiveToContainer: true,
     excludeItems: ['documentMode'],
     fonts: SUPERDOC_FONT_CONFIGS,
+  }
+
+  if (isHighlightToolbarMode()) {
+    return {
+      ...config,
+      hideButtons: false,
+      responsiveToContainer: false,
+      groups: {
+        left: ['highlight'],
+        center: [],
+        right: [],
+      },
+    }
   }
 
   if (props.hideToolbar) {
@@ -836,6 +962,240 @@ async function scrollToComment(commentId: string): Promise<boolean> {
   return false
 }
 
+async function scrollToElement(nodeId: string, offset?: number): Promise<boolean> {
+  if (!superdoc || !nodeId.trim()) return false
+
+  const editor = getActiveEditor()
+  const targetId =
+    (editor ? findCanonicalNodeIdInDoc(editor, nodeId.trim()) : null) ?? nodeId.trim()
+  const normalizedOffset =
+    typeof offset === 'number' && Number.isFinite(offset) && offset > 0
+      ? Math.floor(offset)
+      : undefined
+
+  for (let i = 0; i < 40; i++) {
+    const presentationEditor = getPresentationEditor()
+    const activeEditor = getActiveEditor()
+    if (presentationEditor?.scrollToPositionAsync && activeEditor) {
+      const pos = findBlockScrollPos(activeEditor, targetId, normalizedOffset)
+      if (
+        pos != null &&
+        (await presentationEditor.scrollToPositionAsync(pos, {
+          behavior: 'auto',
+          block: 'center',
+        }))
+      ) {
+        return true
+      }
+    }
+
+    if (!normalizedOffset && (await superdoc.scrollToElement(targetId))) return true
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return false
+}
+
+function ensureNodeContextMenuShell(): HTMLElement {
+  if (nodeContextMenuEl) return nodeContextMenuEl
+
+  const menu = document.createElement('div')
+  menu.setAttribute('role', 'menu')
+  menu.style.cssText =
+    'position:fixed;z-index:1000;display:none;min-width:190px;padding:4px;background:#ffffff;' +
+    'border:1px solid #e2e8f0;border-radius:0.5rem;box-shadow:0 4px 12px rgba(15,23,42,0.15);font-family:inherit;'
+  document.body.appendChild(menu)
+  nodeContextMenuEl = menu
+  return menu
+}
+
+const CONTEXT_MENU_BUTTON_STYLE =
+  'display:flex;align-items:center;gap:0.5rem;width:100%;padding:0.5rem 0.625rem;border:0;' +
+  'background:transparent;border-radius:0.375rem;cursor:pointer;font-size:0.8125rem;color:#334155;text-align:left;'
+
+function createContextMenuButton(label: string, onClick: () => void, iconHtml = '') {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.style.cssText = CONTEXT_MENU_BUTTON_STYLE
+  button.addEventListener('mouseenter', () => {
+    button.style.background = '#f1f5f9'
+  })
+  button.addEventListener('mouseleave', () => {
+    button.style.background = 'transparent'
+  })
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    event.preventDefault()
+    onClick()
+  })
+
+  if (iconHtml) {
+    const icon = document.createElement('span')
+    icon.style.cssText = 'display:inline-flex;flex-shrink:0;color:#64748b;'
+    icon.innerHTML = iconHtml
+    button.appendChild(icon)
+  }
+
+  const text = document.createElement('span')
+  text.textContent = label
+  button.appendChild(text)
+  return button
+}
+
+function createContextMenuDivider() {
+  const divider = document.createElement('div')
+  divider.style.cssText = 'height:1px;background:#e2e8f0;margin:4px 0;'
+  return divider
+}
+
+function populateNodeContextMenu(options: { showCopyLink: boolean; showHighlight: boolean }) {
+  const menu = ensureNodeContextMenuShell()
+  menu.replaceChildren()
+
+  if (options.showHighlight) {
+    const heading = document.createElement('div')
+    heading.textContent = props.labels.highlightText
+    heading.style.cssText = 'padding:0.375rem 0.625rem 0.25rem;font-size:0.75rem;font-weight:600;color:#64748b;'
+    menu.appendChild(heading)
+
+    const grid = document.createElement('div')
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(7,1.75rem);gap:0.375rem;padding:0.25rem 0.625rem 0.5rem;'
+    for (const swatch of HIGHLIGHT_SWATCHES) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.title = swatch.label
+      button.setAttribute('aria-label', swatch.label)
+      button.style.cssText =
+        `width:1.75rem;height:1.75rem;border:1px solid #cbd5e1;border-radius:0.375rem;background:${swatch.color};cursor:pointer;`
+      button.addEventListener('click', (event) => {
+        event.stopPropagation()
+        event.preventDefault()
+        if (applyContextMenuHighlight(swatch.color)) emit('update')
+        hideNodeContextMenu()
+      })
+      grid.appendChild(button)
+    }
+    menu.appendChild(grid)
+
+    menu.appendChild(
+      createContextMenuButton(props.labels.removeHighlight, () => {
+        if (applyContextMenuHighlight(null)) emit('update')
+        hideNodeContextMenu()
+      })
+    )
+  }
+
+  if (options.showCopyLink && activeContextMenuNodeId) {
+    if (options.showHighlight) menu.appendChild(createContextMenuDivider())
+    menu.appendChild(
+      createContextMenuButton(
+        props.labels.copyParagraphLink,
+        () => {
+          emit('copyNodeLinkRequest', {
+            nodeId: activeContextMenuNodeId!,
+            offset: activeContextMenuNodeOffset ?? undefined,
+          })
+          hideNodeContextMenu()
+        },
+        COMMENT_COPY_LINK_ICON
+      )
+    )
+  }
+}
+
+function hideNodeContextMenu() {
+  if (nodeContextMenuEl) nodeContextMenuEl.style.display = 'none'
+  activeContextMenuNodeId = null
+  activeContextMenuNodeOffset = null
+}
+
+function showNodeContextMenu(
+  x: number,
+  y: number,
+  options: { showCopyLink: boolean; showHighlight: boolean },
+  nodeId: string | null = null,
+  offset = 0
+) {
+  activeContextMenuNodeId = nodeId
+  activeContextMenuNodeOffset = offset > 0 ? offset : null
+  populateNodeContextMenu(options)
+
+  const menu = ensureNodeContextMenuShell()
+  menu.style.left = '0px'
+  menu.style.top = '0px'
+  menu.style.display = 'block'
+  const rect = menu.getBoundingClientRect()
+  const maxX = Math.max(4, window.innerWidth - rect.width - 4)
+  const maxY = Math.max(4, window.innerHeight - rect.height - 4)
+  menu.style.left = `${Math.min(Math.max(4, x), maxX)}px`
+  menu.style.top = `${Math.min(Math.max(4, y), maxY)}px`
+}
+
+function onEditorContextMenu(event: MouseEvent) {
+  const root = editorRef.value
+  if (!root) return
+
+  const target = event.target
+  if (!(target instanceof Node) || !root.contains(target)) return
+
+  const pointerTarget = getBlockTargetAtPointer(event.clientX, event.clientY)
+  const nodeId =
+    pointerTarget?.nodeId ??
+    (target instanceof Element ? getNodeIdFromElement(target) : null)
+  const showHighlight = isHighlightToolbarMode() && hasHighlightableSelection(getActiveEditor())
+  const showCopyLink = Boolean(nodeId)
+
+  if (!showHighlight && !showCopyLink) {
+    hideNodeContextMenu()
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  showNodeContextMenu(
+    event.clientX,
+    event.clientY,
+    { showCopyLink, showHighlight },
+    nodeId,
+    pointerTarget?.offset ?? 0
+  )
+}
+
+function onNodeContextMenuOutsideClick(event: MouseEvent) {
+  if (!nodeContextMenuEl || nodeContextMenuEl.style.display === 'none') return
+  const target = event.target
+  if (target instanceof Node && nodeContextMenuEl.contains(target)) return
+  hideNodeContextMenu()
+}
+
+function onNodeContextMenuKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') hideNodeContextMenu()
+}
+
+function wireNodeContextMenu() {
+  document.addEventListener('contextmenu', onEditorContextMenu, true)
+  document.addEventListener('mousedown', onNodeContextMenuOutsideClick, true)
+  document.addEventListener('keydown', onNodeContextMenuKeydown, true)
+  window.addEventListener('scroll', hideNodeContextMenu, true)
+  window.addEventListener('resize', hideNodeContextMenu)
+
+  removeNodeContextMenuListeners = () => {
+    document.removeEventListener('contextmenu', onEditorContextMenu, true)
+    document.removeEventListener('mousedown', onNodeContextMenuOutsideClick, true)
+    document.removeEventListener('keydown', onNodeContextMenuKeydown, true)
+    window.removeEventListener('scroll', hideNodeContextMenu, true)
+    window.removeEventListener('resize', hideNodeContextMenu)
+  }
+}
+
+function disconnectNodeContextMenu() {
+  removeNodeContextMenuListeners?.()
+  removeNodeContextMenuListeners = null
+  nodeContextMenuEl?.remove()
+  nodeContextMenuEl = null
+  activeContextMenuNodeId = null
+}
+
 function hasComments(): boolean {
   if (!superdoc) return false
 
@@ -881,6 +1241,7 @@ defineExpose({
   updatePageStyle,
   setPageMargin,
   scrollToComment,
+  scrollToElement,
   hasComments,
 })
 
@@ -959,17 +1320,19 @@ onMounted(() => {
   if (commentsEnabled) {
     document.addEventListener('click', onDocumentClick, true)
   }
+  wireNodeContextMenu()
   superdoc = new SuperDoc({
     selector: '#editor',
-    ...(props.hideToolbar ? {} : { toolbar: '#toolbar' }),
+    ...(showToolbarChrome() ? { toolbar: '#toolbar' } : {}),
     document: resolveDocument(props.document) as any,
-    documentMode: props.documentMode as any,
-    role: props.role as any,
+    documentMode: effectiveDocumentMode() as any,
+    role: effectiveRole() as any,
     contained: true,
-    rulers: !props.hideToolbar,
+    rulers: showToolbarChrome() && !isHighlightToolbarMode(),
     user: props.user,
     comments: { visible: commentsEnabled },
-    ...(commentsEnabled ? { allowSelectionInViewMode: true } : {}),
+    ...(isViewReviewMode() ? { allowSelectionInViewMode: true } : {}),
+    ...(isHighlightToolbarMode() ? { disableContextMenu: true } : {}),
     modules: {
       toolbar: buildToolbarConfig() as any,
       ...(commentsEnabled
@@ -988,32 +1351,12 @@ onMounted(() => {
       ...(props.trackChangesVisible ? { trackChanges: { visible: true } } : {}),
     },
     onReady: () => {
-      syncHeaderFooterContext()
-      syncDifferentFirstPageToolbar()
-      syncPageBreakToolbar()
-      syncPageNumberToolbar()
-      superdoc?.toolbar?.updateToolbarState?.()
-      nextTick(() => {
-        injectMarginControls()
-        syncMarginControls()
-        wirePageNumberDropdownGuard()
-        wireCommentCopyLinkButtons()
-      })
-      isReady.value = true
-      emit('ready')
+      attachHighlightOnlyGuard(getActiveEditor())
+      handleEditorReady()
     },
-    onEditorCreate: () => {
-      syncHeaderFooterContext()
-      syncDifferentFirstPageToolbar()
-      syncPageBreakToolbar()
-      syncPageNumberToolbar()
-      superdoc?.toolbar?.updateToolbarState?.()
-      nextTick(() => {
-        injectMarginControls()
-        syncMarginControls()
-        wirePageNumberDropdownGuard()
-        wireCommentCopyLinkButtons()
-      })
+    onEditorCreate: ({ editor }: { editor?: unknown }) => {
+      attachHighlightOnlyGuard(editor)
+      syncEditorChrome()
     },
     onEditorUpdate: handleEditorUpdate,
     ...(commentsEnabled
@@ -1045,6 +1388,7 @@ onUnmounted(() => {
   disconnectPageNumberKeyboard?.()
   disconnectPageNumberKeyboard = null
   disconnectCommentCopyLinkButtons()
+  disconnectNodeContextMenu()
   removeMarginControls()
   removePageNumberDropdownGuard?.()
   removePageNumberDropdownGuard = null
@@ -1070,6 +1414,19 @@ onUnmounted(() => {
   width: 100%;
   overflow: auto;
   margin-top:40px
+}
+
+#toolbar.sd-highlight-toolbar {
+  flex-shrink: 0;
+  width: 100%;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+#toolbar.sd-highlight-toolbar :deep(.superdoc-toolbar) {
+  justify-content: flex-start;
+  min-height: 2.5rem;
+  padding: 0.25rem 0.5rem;
 }
 
 #toolbar {
