@@ -15,13 +15,16 @@
       :show-page-number="config.showPageNumber ?? true"
       :track-changes-visible="config.trackChangesVisible ?? false"
       :can-comment="config.canComment ?? false"
+      :show-highlight-toolbar="config.showHighlightToolbar ?? false"
       :labels="labels"
       @ready="postToParent({ type: 'ready' })"
       @update="postToParent({ type: 'update' })"
       @docx-selected="onDocxSelected"
       @comment-selected="onCommentSelected"
       @comment-saved="onCommentSaved"
+      @highlight-saved="onHighlightSaved"
       @copy-comment-link-request="onCopyCommentLinkRequest"
+      @copy-node-link-request="onCopyNodeLinkRequest"
     />
     <div v-else class="superdoc-waiting" role="status">Waiting for editor configuration...</div>
   </main>
@@ -115,10 +118,23 @@ function onCommentSaved(payload: { type: string; commentId?: string }) {
   })
 }
 
+function onHighlightSaved() {
+  postToParent({
+    type: 'highlightSaved',
+  })
+}
+
 function onCopyCommentLinkRequest(commentId: string) {
   postToParent({
     type: 'copyCommentLinkRequest',
     payload: { commentId },
+  })
+}
+
+function onCopyNodeLinkRequest(payload: { nodeId: string; offset?: number }) {
+  postToParent({
+    type: 'copyNodeLinkRequest',
+    payload,
   })
 }
 
@@ -207,6 +223,19 @@ async function handleRequest(message: ParentToIframeMessage) {
       const found = await editorRef.value.scrollToComment(message.payload.commentId)
       postToParent({
         type: 'scrollToCommentResult',
+        requestId: message.requestId,
+        payload: { found },
+      })
+      return
+    }
+
+    if (message.type === 'scrollToElement') {
+      const found = await editorRef.value.scrollToElement(
+        message.payload.nodeId,
+        message.payload.offset
+      )
+      postToParent({
+        type: 'scrollToElementResult',
         requestId: message.requestId,
         payload: { found },
       })

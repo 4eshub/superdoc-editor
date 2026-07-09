@@ -28,6 +28,9 @@ export type SuperDocLabels = {
   pageNumberWrongFirstPageVariant: string
   pageNumberInsertFailed: string
   copyCommentLink: string
+  copyParagraphLink: string
+  highlightText: string
+  removeHighlight: string
 }
 
 export type SuperDocInitPayload = {
@@ -42,6 +45,7 @@ export type SuperDocInitPayload = {
   showPageNumber?: boolean
   trackChangesVisible?: boolean
   canComment?: boolean
+  showHighlightToolbar?: boolean
   locale?: string
   labels?: Partial<SuperDocLabels>
 }
@@ -90,6 +94,12 @@ export type ParentToIframeMessage =
       type: 'scrollToComment'
       requestId: string
       payload: { commentId: string }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'scrollToElement'
+      requestId: string
+      payload: { nodeId: string; offset?: number }
     }
 
 export type IframeToParentMessage =
@@ -141,6 +151,12 @@ export type IframeToParentMessage =
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'scrollToElementResult'
+      requestId: string
+      payload: { found: boolean }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
       type: 'commentSelected'
       requestId?: string
       payload: { commentId: string }
@@ -153,9 +169,20 @@ export type IframeToParentMessage =
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'highlightSaved'
+      requestId?: string
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
       type: 'copyCommentLinkRequest'
       requestId?: string
       payload: { commentId: string }
+    }
+  | {
+      namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
+      type: 'copyNodeLinkRequest'
+      requestId?: string
+      payload: { nodeId: string; offset?: number }
     }
   | {
       namespace: typeof SUPERDOC_IFRAME_MESSAGE_NAMESPACE
