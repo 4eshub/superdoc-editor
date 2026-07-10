@@ -56,6 +56,7 @@ import {
 } from '@/utils/blockNodeId'
 import {
   applyTextHighlight,
+  getHighlightSignature,
   hasHighlightableSelection,
   HIGHLIGHT_SWATCHES,
   wireHighlightOnlyGuard,
@@ -140,6 +141,7 @@ let nodeContextMenuEl: HTMLElement | null = null
 let activeContextMenuNodeId: string | null = null
 let activeContextMenuNodeOffset: number | null = null
 let removeNodeContextMenuListeners: (() => void) | null = null
+let lastHighlightSignature = ''
 
 const COMMENT_COPY_LINK_ATTR = 'data-superdoc-copy-link-wired'
 const COMMENT_COPY_LINK_ICON =
@@ -554,13 +556,17 @@ function getBlockTargetAtPointer(clientX: number, clientY: number) {
 }
 
 function notifyHighlightSaved() {
-  if (!isHighlightToolbarMode()) return
+  if (!isHighlightToolbarMode() || !isReady.value) return
+
+  const signature = getHighlightSignature(getActiveEditor())
+  if (signature === lastHighlightSignature) return
+  lastHighlightSignature = signature
   emit('highlightSaved')
 }
 
 function applyContextMenuHighlight(color: string | null): boolean {
   if (!applyTextHighlight(getActiveEditor(), color)) return false
-  notifyHighlightSaved()
+  nextTick(() => notifyHighlightSaved())
   return true
 }
 
@@ -598,6 +604,7 @@ function handleEditorReady() {
     wireCommentCopyLinkButtons()
   })
   isReady.value = true
+  lastHighlightSignature = getHighlightSignature(getActiveEditor())
   emit('ready')
 }
 
@@ -640,6 +647,7 @@ function handleEditorUpdate(params: any) {
   syncDifferentFirstPageToolbar()
   syncPageBreakToolbar()
   syncPageNumberToolbar()
+  notifyHighlightSaved()
   emit('update')
 }
 
