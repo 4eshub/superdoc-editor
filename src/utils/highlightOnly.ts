@@ -12,10 +12,22 @@ export const HIGHLIGHT_SWATCHES = [
   { color: '#FCFCFC', label: 'Light gray' },
 ] as const
 
+type HighlightableDocNode = {
+  isText?: boolean
+  marks?: Array<{ type?: { name?: string }; attrs?: Record<string, unknown> }>
+}
+
 type GuardableEditor = {
   registerPlugin?: (plugin: Plugin) => void
-  unregisterPlugin?: (nameOrPluginKey: string | PluginKey) => void
-  state?: { selection?: { empty?: boolean } }
+  state?: {
+    doc?: {
+      descendants?: (
+        fn: (node: HighlightableDocNode, pos: number) => void
+      ) => void
+    }
+    plugins?: Array<{ spec?: { key?: PluginKey } }>
+    selection?: { empty?: boolean }
+  }
   commands?: {
     setHighlight?: (color: string) => boolean
     unsetHighlight?: () => boolean
@@ -28,10 +40,33 @@ type GuardableEditor = {
   }
 }
 
+function isHighlightMark(name: string) {
+  return name === 'highlight' || name === 'textHighlight' || name.includes('highlight')
+}
+
+export function getHighlightSignature(editor: GuardableEditor | null | undefined): string {
+  const doc = editor?.state?.doc
+  if (!doc?.descendants) return ''
+
+  const parts: string[] = []
+  doc.descendants((node, pos) => {
+    if (!node.isText) return
+    for (const mark of node.marks ?? []) {
+      const name = mark.type?.name ?? ''
+      if (!isHighlightMark(name)) continue
+      parts.push(`${pos}:${name}:${JSON.stringify(mark.attrs ?? {})}`)
+    }
+  })
+  return parts.join('|')
+}
+
 export function wireHighlightOnlyGuard(editor: GuardableEditor | null | undefined) {
   if (!editor?.registerPlugin) return
 
-  editor.unregisterPlugin?.(HIGHLIGHT_ONLY_PLUGIN_KEY)
+  const isAlreadyRegistered = editor.state?.plugins?.some(
+    (plugin) => plugin.spec?.key === HIGHLIGHT_ONLY_PLUGIN_KEY
+  )
+  if (isAlreadyRegistered) return
 
   editor.registerPlugin(
     new Plugin({
